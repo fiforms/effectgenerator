@@ -44,6 +44,12 @@ public:
     
     // Called after each frame is rendered (for animation updates)
     virtual void update() = 0;
+    
+    // Optional: for effects that need post-processing with frame index knowledge
+    virtual void postProcess(std::vector<uint8_t>& frame, int frameIndex, int totalFrames) {
+        // Default: do nothing
+        (void)frame; (void)frameIndex; (void)totalFrames;
+    }
 };
 
 // Effect factory

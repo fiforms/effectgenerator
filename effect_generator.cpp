@@ -239,6 +239,10 @@ bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outpu
         
         effect->renderFrame(frame_, hasBackground_, fadeMultiplier);
         
+        // Allow effect to do post-processing with frame index knowledge
+        // Note: for auto-detect, we use frameCount as both current and "total" since we don't know end yet
+        effect->postProcess(frame_, frameCount, autoDetectDuration ? frameCount : totalFrames);
+        
         // Apply fade to entire frame for black background mode
         if (!hasBackground_ && fadeDuration_ > 0.0f && !autoDetectDuration) {
             fadeMultiplier = getFadeMultiplier(frameCount, totalFrames);

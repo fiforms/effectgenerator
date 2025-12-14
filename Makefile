@@ -21,7 +21,7 @@ else
 endif
 
 # Source files
-SOURCES = main.cpp effect_generator.cpp snowflake_effect.cpp laser_effect.cpp
+SOURCES = main.cpp effect_generator.cpp snowflake_effect.cpp laser_effect.cpp loopfade_effect.cpp
 
 # Object files
 OBJECTS = $(SOURCES:.cpp=.o)
