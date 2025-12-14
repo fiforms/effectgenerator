@@ -5,6 +5,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
+#include <climits>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -168,14 +169,30 @@ bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outpu
         return false;
     }
     
-    int totalFrames = fps_ * durationSec;
-    std::cout << "Generating " << totalFrames << " frames (" << durationSec << "s @ " << fps_ << " fps)...\n";
+    // If duration is -1 and we have a video background, run until video ends
+    bool autoDetectDuration = (durationSec == -1 && isVideo_);
+    int totalFrames = autoDetectDuration ? INT_MAX : fps_ * durationSec;
     
-    for (int i = 0; i < totalFrames; i++) {
+    if (autoDetectDuration) {
+        std::cout << "Generating frames until input video ends...\n";
+    } else {
+        std::cout << "Generating " << totalFrames << " frames (" << durationSec << "s @ " << fps_ << " fps)...\n";
+    }
+    
+    int frameCount = 0;
+    
+    while (frameCount < totalFrames) {
         // Read video frame if needed
         if (isVideo_ && hasBackground_) {
             if (!readVideoFrame()) {
-                std::cerr << "\nWarning: Video ended at frame " << i << ", continuing with last frame\n";
+                if (autoDetectDuration) {
+                    std::cout << "\nInput video ended at frame " << frameCount 
+                              << " (" << frameCount / fps_ << " seconds)\n";
+                    break; // End of video, stop gracefully
+                } else {
+                    std::cerr << "\nWarning: Video ended at frame " << frameCount 
+                              << ", continuing with last frame\n";
+                }
             }
         }
         
@@ -187,12 +204,30 @@ bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outpu
         }
         
         // Render effect
-        float fadeMultiplier = hasBackground_ ? getFadeMultiplier(i, totalFrames) : 1.0f;
+        // For auto-detected duration, use fade based on current frame count
+        float fadeMultiplier;
+        if (hasBackground_) {
+            if (autoDetectDuration) {
+                // Calculate fade on-the-fly
+                int fadeFrames = (int)(fadeDuration_ * fps_);
+                if (frameCount < fadeFrames) {
+                    fadeMultiplier = (float)frameCount / fadeFrames;
+                } else {
+                    fadeMultiplier = 1.0f;
+                    // Note: fade-out won't work with auto-detect since we don't know when video ends
+                }
+            } else {
+                fadeMultiplier = getFadeMultiplier(frameCount, totalFrames);
+            }
+        } else {
+            fadeMultiplier = 1.0f;
+        }
+        
         effect->renderFrame(frame_, hasBackground_, fadeMultiplier);
         
         // Apply fade to entire frame for black background mode
-        if (!hasBackground_ && fadeDuration_ > 0.0f) {
-            fadeMultiplier = getFadeMultiplier(i, totalFrames);
+        if (!hasBackground_ && fadeDuration_ > 0.0f && !autoDetectDuration) {
+            fadeMultiplier = getFadeMultiplier(frameCount, totalFrames);
             if (fadeMultiplier < 1.0f) {
                 for (size_t j = 0; j < frame_.size(); j++) {
                     frame_[j] = (uint8_t)(frame_[j] * fadeMultiplier);
@@ -206,8 +241,10 @@ bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outpu
         // Update effect state
         effect->update();
         
-        if ((i + 1) % fps_ == 0) {
-            std::cout << "Progress: " << (i + 1) / fps_ << "/" << durationSec << " seconds\r" << std::flush;
+        frameCount++;
+        
+        if (frameCount % fps_ == 0) {
+            std::cout << "Progress: " << frameCount / fps_ << " seconds\r" << std::flush;
         }
     }
     

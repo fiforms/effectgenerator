@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
     }
     
     // Parse common arguments
-    int width = 1920, height = 1080, fps = 30, duration = 5;
+    int width = 1920, height = 1080, fps = 30, duration = -1; // -1 means auto-detect
     float fadeDuration = 0.0f;
     std::string output = "output.mp4";
     std::string backgroundImage;
@@ -139,22 +139,6 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    // Print configuration
-    std::cout << "Effect Generator\n";
-    std::cout << "================\n";
-    std::cout << "Effect: " << effect->getName() << "\n";
-    std::cout << "Resolution: " << width << "x" << height << "\n";
-    std::cout << "FPS: " << fps << "\n";
-    std::cout << "Duration: " << duration << "s\n";
-    std::cout << "Fade duration: " << fadeDuration << "s\n";
-    if (!backgroundImage.empty()) {
-        std::cout << "Background image: " << backgroundImage << "\n";
-    }
-    if (!backgroundVideo.empty()) {
-        std::cout << "Background video: " << backgroundVideo << "\n";
-    }
-    std::cout << "Output: " << output << "\n\n";
-    
     // Create video generator
     VideoGenerator generator(width, height, fps, fadeDuration);
     
@@ -171,7 +155,35 @@ int main(int argc, char** argv) {
             std::cerr << "Error: Could not load background video\n";
             return 1;
         }
+        
+        // If duration not specified, keep it as -1 for auto-detect
+        // Don't set to 5 here!
     }
+    
+    // Use default duration only if no video background
+    if (duration == -1 && backgroundVideo.empty()) {
+        duration = 5;
+    }
+    
+    // Print configuration
+    std::cout << "Effect Generator\n";
+    std::cout << "================\n";
+    std::cout << "Effect: " << effect->getName() << "\n";
+    std::cout << "Resolution: " << width << "x" << height << "\n";
+    std::cout << "FPS: " << fps << "\n";
+    if (duration == -1) {
+        std::cout << "Duration: auto-detect from video\n";
+    } else {
+        std::cout << "Duration: " << duration << "s\n";
+    }
+    std::cout << "Fade duration: " << fadeDuration << "s\n";
+    if (!backgroundImage.empty()) {
+        std::cout << "Background image: " << backgroundImage << "\n";
+    }
+    if (!backgroundVideo.empty()) {
+        std::cout << "Background video: " << backgroundVideo << "\n";
+    }
+    std::cout << "Output: " << output << "\n\n";
     
     // Generate video
     if (!generator.generate(effect.get(), duration, output.c_str())) {
