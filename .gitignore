@@ -1,0 +1,8 @@
+# Ignore the compiled effectgenerator binary
+/effectgenerator
+
+# Ignore object files
+*.o
+
+# Ignore MP4 recordings
+*.mp4
