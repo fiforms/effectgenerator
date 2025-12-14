@@ -52,8 +52,8 @@ std::string VideoGenerator::findFFmpeg() {
     return "ffmpeg"; // Fall back to PATH
 }
 
-VideoGenerator::VideoGenerator(int width, int height, int fps, float fadeDuration)
-    : width_(width), height_(height), fps_(fps), fadeDuration_(fadeDuration),
+VideoGenerator::VideoGenerator(int width, int height, int fps, float fadeDuration, int crf)
+    : width_(width), height_(height), fps_(fps), fadeDuration_(fadeDuration), crf_(crf),
       hasBackground_(false), isVideo_(false), videoInput_(nullptr), ffmpegOutput_(nullptr) {
     frame_.resize(width * height * 3);
     ffmpegPath_ = findFFmpeg();
@@ -128,11 +128,25 @@ bool VideoGenerator::setBackgroundVideo(const char* filename) {
 }
 
 bool VideoGenerator::startFFmpegOutput(const char* filename) {
-    char cmd[1024];
-    snprintf(cmd, sizeof(cmd),
-            "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
-            "-c:v libx264 -preset medium -crf 23 -pix_fmt yuv420p \"%s\"",
-            ffmpegPath_.c_str(), width_, height_, fps_, filename);
+    char cmd[2048];
+    
+    // Check for custom FFmpeg parameters from environment
+    const char* customParams = std::getenv("FFMPEG_PARAMETERS");
+    
+    if (customParams && customParams[0] != '\0') {
+        // Use custom parameters from environment variable
+        snprintf(cmd, sizeof(cmd),
+                "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
+                "%s \"%s\"",
+                ffmpegPath_.c_str(), width_, height_, fps_, customParams, filename);
+        std::cout << "Using custom FFmpeg parameters from FFMPEG_PARAMETERS\n";
+    } else {
+        // Use default parameters with configurable CRF
+        snprintf(cmd, sizeof(cmd),
+                "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
+                "-c:v libx264 -preset medium -crf %d -pix_fmt yuv420p \"%s\"",
+                ffmpegPath_.c_str(), width_, height_, fps_, crf_, filename);
+    }
     
     ffmpegOutput_ = popen(cmd, "w");
     if (!ffmpegOutput_) {

@@ -83,6 +83,7 @@ int main(int argc, char** argv) {
     
     // Parse common arguments
     int width = 1920, height = 1080, fps = 30, duration = -1; // -1 means auto-detect
+    int crf = 23;
     float fadeDuration = 0.0f;
     std::string output = "output.mp4";
     std::string backgroundImage;
@@ -105,6 +106,8 @@ int main(int argc, char** argv) {
             duration = std::atoi(argv[++i]);
         } else if (arg == "--fade" && i + 1 < argc) {
             fadeDuration = std::atof(argv[++i]);
+        } else if (arg == "--crf" && i + 1 < argc) {
+            crf = std::atoi(argv[++i]);
         } else if (arg == "--output" && i + 1 < argc) {
             output = argv[++i];
         } else if (arg == "--background-image" && i + 1 < argc) {

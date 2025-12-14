@@ -108,6 +108,7 @@ private:
     std::string backgroundImage_;
     std::string backgroundVideo_;
     std::string ffmpegPath_;
+    int crf_;
     
     std::vector<uint8_t> frame_;
     std::vector<uint8_t> backgroundBuffer_;
@@ -124,10 +125,11 @@ private:
     float getFadeMultiplier(int frameNumber, int totalFrames);
     
 public:
-    VideoGenerator(int width, int height, int fps, float fadeDuration);
+    VideoGenerator(int width, int height, int fps, float fadeDuration, int crf = 23);
     ~VideoGenerator();
     
     void setFFmpegPath(const std::string& path) { ffmpegPath_ = path; }
+    void setCRF(int crf) { crf_ = crf; }
     bool setBackgroundImage(const char* filename);
     bool setBackgroundVideo(const char* filename);
     
