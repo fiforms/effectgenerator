@@ -97,18 +97,15 @@ effectgenerator --effect snowflake --background-video input.mp4 --fade 2.0
 effectgenerator --effect snowflake --width 3840 --height 2160 --fps 60
 ```
 
-## Snowflake Effect Options
+**Implemented Effects**
 
-- `--flakes <int>` - Number of snowflakes (default: 150)
-- `--size <float>` - Average snowflake size (default: 3.0)
-- `--size-var <float>` - Size variance (default: 1.5)
-- `--motion-x <float>` - Horizontal drift (default: 0.5)
-- `--motion-y <float>` - Vertical fall speed (default: 2.0)
-- `--randomness <float>` - Motion turbulence (default: 1.0)
-- `--softness <float>` - Edge blur (default: 2.0)
-- `--brightness <float>` - Maximum brightness 0.0-1.0 (default: 1.0)
-- `--spin` - Enable spin-like aspect morphing (gives 3D spin illusion)
-- `--spin-axis <h|v|random>` - Axis for spin: `h`=horizontal, `v`=vertical, `random`=per-flake random (default: `random`)
+- **snowflake**: Realistic falling snowflakes with soft edges and natural motion. Key options: `--flakes`, `--size`, `--size-var`, `--motion-x`, `--motion-y`, `--randomness`, `--softness`, `--brightness`, `--brightness-speed`, `--hue`, `--saturation`, `--hue-range`, `--spin`, `--spin-axis`. Example: `effectgenerator --effect snowflake --flakes 200 --duration 10`.
+
+- **laser**: Animated radial rays / spotlight with moving focal point and morphing rays. Key options: `--focal-x`, `--focal-y`, `--focal-motion-x`, `--focal-motion-y`, `--focal-random`, `--rays`, `--intensity`, `--ray-width`, `--ray-width-var`, `--morph-speed`, `--rotation`, `--color-r`, `--color-g`, `--color-b`. Example: `effectgenerator --effect laser --rays 12 --intensity 0.8 --rotation 0.5 --duration 8`.
+
+- **loopfade**: Create a seamless looping video by crossfading the end back to the start. Requires a `--background-video` and an explicit `--duration`. Key option: `--crossfade-duration`. Example: `effectgenerator --effect loopfade --background-video input.mp4 --duration 10 --crossfade-duration 1.5 --output loop.mp4`.
+
+- **waves**: Water wave ripples with interference, warmup, directional lighting and optional pixel displacement. Key options: `--sources`, `--amplitude`, `--frequency`, `--speed`, `--decay`, `--direction`, `--warmup`, `--light-angle`, `--light-intensity`, `--interference`, `--no-displacement`, `--displacement-scale`, `--spawn-prob`, `--offscreen-prob`, `--min-lifetime`, `--max-lifetime`. Example: `effectgenerator --effect waves --amplitude 0.6 --direction right --warmup 30 --duration 12`.
 
 ## Adding New Effects
 
@@ -129,15 +126,6 @@ class MyEffect : public Effect {
 };
 
 REGISTER_EFFECT(MyEffect, "myeffect", "Description")
-```
-
-## Architecture
-
-```
-effect_generator.h         - Framework interface
-effect_generator.cpp       - Video generation logic
-snowflake_effect.cpp       - Snowflake implementation
-main.cpp                   - Command-line interface
 ```
 
 ### Effect Interface
