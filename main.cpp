@@ -137,19 +137,6 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    // Special check for loopfade effect
-    if (effect->getName() == "loopfade") {
-        if (backgroundVideo.empty()) {
-            std::cerr << "Error: loopfade effect requires --background-video\n";
-            return 1;
-        }
-        if (duration == -1) {
-            std::cerr << "Error: loopfade effect requires explicit --duration\n";
-            std::cerr << "Please specify the duration of your output video.\n";
-            return 1;
-        }
-    }
-    
     if (!backgroundImage.empty() && !backgroundVideo.empty()) {
         std::cerr << "Error: Cannot specify both --background-image and --background-video\n";
         return 1;
