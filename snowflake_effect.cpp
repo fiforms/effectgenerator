@@ -22,6 +22,10 @@ struct Snowflake {
     float sizeFreq;
     float sizeAmpX;
     float sizeAmpY;
+    // per-flake color
+    float colorR;
+    float colorG;
+    float colorB;
 };
 
 class SnowflakeEffect : public Effect {
@@ -34,11 +38,37 @@ private:
     float softness_;
     float maxBrightness_;
     float brightnessSpeed_;
+    // color controls
+    float avgHue_; // 0..1
+    float saturation_; // 0..1
+    float hueRange_; // 0..1
     int frameCount_;
     bool morphAspect_;
     
     std::vector<Snowflake> flakes_;
     std::mt19937 rng_;
+    
+    void hsvToRgb(float h, float s, float v, float &r, float &g, float &b) {
+        if (s <= 0.0f) {
+            r = g = b = v;
+            return;
+        }
+        float hh = h * 6.0f;
+        if (hh >= 6.0f) hh = 0.0f;
+        int i = (int)hh;
+        float ff = hh - i;
+        float p = v * (1.0f - s);
+        float q = v * (1.0f - s * ff);
+        float t = v * (1.0f - s * (1.0f - ff));
+        switch (i) {
+            case 0: r = v; g = t; b = p; break;
+            case 1: r = q; g = v; b = p; break;
+            case 2: r = p; g = v; b = t; break;
+            case 3: r = p; g = q; b = v; break;
+            case 4: r = t; g = p; b = v; break;
+            case 5: default: r = v; g = p; b = q; break;
+        }
+    }
     
     void resetFlake(Snowflake& f) {
         std::uniform_real_distribution<float> distX(0, width_);
@@ -83,9 +113,26 @@ private:
             f.sizeAmpX = v;
             f.sizeAmpY = v;
         }
+
+        // determine per-flake color based on avgHue_, saturation_ and hueRange_
+        float hue = avgHue_;
+        if (hueRange_ > 0.0f) {
+            float halfRange = hueRange_ * 0.5f;
+            std::uniform_real_distribution<float> distHueOffset(-halfRange, halfRange);
+            hue = hue + distHueOffset(rng_);
+            // wrap hue into [0,1]
+            if (hue < 0.0f) hue += 1.0f;
+            if (hue >= 1.0f) hue -= 1.0f;
+        }
+        float sat = std::clamp(saturation_, 0.0f, 1.0f);
+        float r, g, b;
+        hsvToRgb(hue, sat, 1.0f, r, g, b);
+        f.colorR = r;
+        f.colorG = g;
+        f.colorB = b;
     }
     
-    void drawEllipse(std::vector<uint8_t>& frame, int cx, int cy, float rx, float ry, float opacity, float fadeMultiplier) {
+    void drawEllipse(std::vector<uint8_t>& frame, int cx, int cy, float rx, float ry, float opacity, float fadeMultiplier, float colR, float colG, float colB) {
         float effectiveRx = rx + softness_;
         float effectiveRy = ry + softness_;
 
@@ -121,11 +168,19 @@ private:
 
                 if (alpha > 0.005f) {
                     int idx = (y * width_ + x) * 3;
-                    for (int c = 0; c < 3; c++) {
-                        float current = frame[idx + c] / 255.0f;
-                        float result = std::min(1.0f, current + alpha);
-                        frame[idx + c] = (uint8_t)(255 * result);
-                    }
+                    // add colored contribution scaled by alpha
+                    float addR = alpha * colR;
+                    float addG = alpha * colG;
+                    float addB = alpha * colB;
+                    float currentR = frame[idx + 0] / 255.0f;
+                    float currentG = frame[idx + 1] / 255.0f;
+                    float currentB = frame[idx + 2] / 255.0f;
+                    float resR = std::min(1.0f, currentR + addR);
+                    float resG = std::min(1.0f, currentG + addG);
+                    float resB = std::min(1.0f, currentB + addB);
+                    frame[idx + 0] = (uint8_t)(255 * resR);
+                    frame[idx + 1] = (uint8_t)(255 * resG);
+                    frame[idx + 2] = (uint8_t)(255 * resB);
                 }
             }
         }
@@ -135,7 +190,7 @@ public:
     SnowflakeEffect()
         : numFlakes_(150), avgSize_(3.0f), sizeVariance_(1.5f),
             avgMotionX_(0.5f), avgMotionY_(2.0f), motionRandomness_(1.0f),
-            softness_(2.0f), maxBrightness_(1.0f), brightnessSpeed_(1.0f), frameCount_(0), morphAspect_(true), rng_(std::random_device{}()) {}
+            softness_(2.0f), maxBrightness_(1.0f), brightnessSpeed_(1.0f), avgHue_(0.0f), saturation_(0.0f), hueRange_(0.0f), frameCount_(0), morphAspect_(true), rng_(std::random_device{}()) {}
         
     
     std::string getName() const override {
@@ -157,6 +212,9 @@ public:
                   << "  --softness <float>     Edge softness/blur (default: 2.0)\n"
                   << "  --brightness <float>   Max brightness 0.0-1.0 (default: 1.0)\n"
                   << "  --brightness-speed <float>  Average speed of brightness pulsing (default: 1.0). Set to 0 to disable pulsing.\n"
+                  << "  --hue <float>          Average hue 0.0-1.0 (default: 0.0 - only matters when saturation>0)\n"
+                  << "  --saturation <float>   Saturation 0.0-1.0 (default: 0.0 = white)\n"
+                  << "  --hue-range <float>    Hue range 0.0-1.0 (0 = same hue, 1 = full range)\n"
                   << "  --morph-aspect         Enable aspect-ratio morphing for flakes (default: enabled)\n"
                   << "  --no-morph-aspect      Disable aspect-ratio morphing (flakes stay circular)\n";
     }
@@ -190,6 +248,15 @@ public:
             return true;
         } else if (arg == "--brightness-speed" && i + 1 < argc) {
             brightnessSpeed_ = std::atof(argv[++i]);
+            return true;
+        } else if (arg == "--hue" && i + 1 < argc) {
+            avgHue_ = std::atof(argv[++i]);
+            return true;
+        } else if (arg == "--saturation" && i + 1 < argc) {
+            saturation_ = std::atof(argv[++i]);
+            return true;
+        } else if (arg == "--hue-range" && i + 1 < argc) {
+            hueRange_ = std::atof(argv[++i]);
             return true;
         } else if (arg == "--morph-aspect") {
             morphAspect_ = true;
@@ -244,7 +311,7 @@ public:
             float rx = std::max(0.5f, f.radius * (1.0f + f.sizeAmpX * std::sin(tSize)));
             float ry = std::max(0.5f, f.radius * (1.0f + f.sizeAmpY * std::sin(tSize + 0.7f)));
 
-            drawEllipse(frame, (int)f.x, (int)f.y, rx, ry, opacity, fadeMultiplier);
+            drawEllipse(frame, (int)f.x, (int)f.y, rx, ry, opacity, fadeMultiplier, f.colorR, f.colorG, f.colorB);
         }
     }
     
