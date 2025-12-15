@@ -46,6 +46,8 @@ private:
     float offscreenProb_;      // Probability source is offscreen
     float minLifetime_;        // Minimum wave source lifetime (seconds)
     float maxLifetime_;        // Maximum wave source lifetime (seconds)
+    // Warmup (pre-simulate) to stabilize the field before first output
+    float warmupSeconds_;
     
     std::vector<WaveSource> sources_;
     std::mt19937 rng_;
@@ -237,14 +239,14 @@ private:
     }
     
 public:
-    WaveEffect()
+        WaveEffect()
         : numSources_(3), baseAmplitude_(0.15f), baseFrequency_(0.02f),
-          baseSpeed_(10.0f), baseDecay_(0.001f),
+          baseSpeed_(2.0f), baseDecay_(0.001f),
           lightAngle_(-M_PI / 4.0f), lightIntensity_(0.3f), waveInterference_(1.0f),
-          displacementScale_(10.0f), useDisplacement_(true), waveDirection_(""),
+                    displacementScale_(10.0f), useDisplacement_(true), waveDirection_(""),
           sourceSpawnProb_(0.02f), offscreenProb_(0.3f),
-          minLifetime_(2.0f), maxLifetime_(8.0f),
-          rng_(std::random_device{}()), frameCount_(0) {}
+          minLifetime_(5.0f), maxLifetime_(30.0f),
+                    rng_(std::random_device{}()), frameCount_(0), warmupSeconds_(60.0f) {}
     
     std::string getName() const override {
         return "waves";
@@ -256,13 +258,15 @@ public:
     
     void printHelp() const override {
         std::cout << "Wave Effect Options:\n"
-                  << "  --sources <int>         Initial number of wave sources (default: 3)\n"
+                  << "  --sources <int>         Initial number of wave sources,"
+                  << "                          likely irrelevant with warmup (default: 3)\n"
                   << "  --amplitude <float>     Base wave amplitude (default: 0.15)\n"
                   << "  --frequency <float>     Base wave frequency (default: 0.02)\n"
-                  << "  --speed <float>         Wave propagation speed (default: 10.0)\n"
+                  << "  --speed <float>         Wave propagation speed (default: 2.0)\n"
                   << "  --decay <float>         Wave decay with distance (default: 0.001)\n"
                   << "  --direction <string>    Wave direction: up, down, left, right, upleft, upright,\n"
                   << "                          downleft, downright (default: omni-directional)\n"
+                  << "  --warmup <float>        Warmup time in seconds to stabilize waves (default: 60.0)\n"
                   << "  --light-angle <float>   Light direction in degrees (default: -45, top-left)\n"
                   << "  --light-intensity <float> Lighting effect strength (default: 0.3)\n"
                   << "  --interference <float>  Wave interference amount 0.0-1.0 (default: 1.0)\n"
@@ -271,8 +275,8 @@ public:
                   << "  --spawn-prob <float>    Random source spawn probability (default: 0.02)\n"
                   << "  --offscreen-prob <float> Probability source is offscreen (default: 0.3)\n"
                   << "                          (ignored in directional mode - always offscreen)\n"
-                  << "  --min-lifetime <float>  Min source lifetime in seconds (default: 2.0)\n"
-                  << "  --max-lifetime <float>  Max source lifetime in seconds (default: 8.0)\n";
+                  << "  --min-lifetime <float>  Min source lifetime in seconds (default: 5.0)\n"
+                  << "  --max-lifetime <float>  Max source lifetime in seconds (default: 30.0)\n";
     }
     
     bool parseArgs(int argc, char** argv, int& i) override {
@@ -324,6 +328,9 @@ public:
         } else if (arg == "--direction" && i + 1 < argc) {
             waveDirection_ = argv[++i];
             return true;
+        } else if (arg == "--warmup" && i + 1 < argc) {
+            warmupSeconds_ = std::atof(argv[++i]);
+            return true;
         }
         
         return false;
@@ -355,6 +362,18 @@ public:
         } else {
             std::cout << "Using brightness modulation only mode\n";
             std::cout << "Light angle: " << (lightAngle_ * 180.0f / M_PI) << " degrees\n";
+        }
+        // Optional warmup: pre-simulate the system for a number of seconds to stabilize
+        if (warmupSeconds_ > 0.0f) {
+            int warmupFrames = (int)std::round(warmupSeconds_ * fps_);
+            std::cout << "Warming up simulation for " << warmupSeconds_ << "s (" << warmupFrames << " frames)";
+            std::cout << "...\n";
+
+            for (int i = 0; i < warmupFrames; ++i) {
+                update();
+            }
+
+            std::cout << "Warmup complete. Current frame count: " << frameCount_ << "\n";
         }
         
         return true;
