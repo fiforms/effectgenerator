@@ -346,7 +346,7 @@ public:
     
     void printHelp() const override {
         std::cout << "Wave Effect Options:\n"
-                  << "  --sources <int>         Initial number of wave sources,"
+                  << "  --sources <int>         Initial number of wave sources,\n"
                   << "                          likely irrelevant with warmup (default: 3)\n"
                   << "  --amplitude <float>     Base wave amplitude (default: 0.15)\n"
                   << "  --frequency <float>     Base wave frequency (default: 0.02)\n"
