@@ -33,6 +33,7 @@ private:
     float motionRandomness_;
     float softness_;
     float maxBrightness_;
+    float brightnessSpeed_;
     int frameCount_;
     bool morphAspect_;
     
@@ -61,8 +62,14 @@ private:
         f.opacity = distOpacity(rng_);
         // brightness/pulse params
         f.brightnessPhase = distPhase(rng_);
-        f.brightnessFreq = distBrightFreq(rng_);
-        f.brightnessAmp = distBrightAmp(rng_);
+        // scale per-flake frequency by the user-controlled average speed
+        f.brightnessFreq = distBrightFreq(rng_) * brightnessSpeed_;
+        // if brightnessSpeed_ is zero (or negative), disable pulsing by zeroing amplitude
+        if (brightnessSpeed_ <= 0.0f) {
+            f.brightnessAmp = 0.0f;
+        } else {
+            f.brightnessAmp = distBrightAmp(rng_);
+        }
 
         // size/shape pulse params (separate from brightness)
         f.sizePhase = distPhase(rng_);
@@ -125,10 +132,10 @@ private:
     }
     
 public:
-        SnowflakeEffect()
-                : numFlakes_(150), avgSize_(3.0f), sizeVariance_(1.5f),
-                    avgMotionX_(0.5f), avgMotionY_(2.0f), motionRandomness_(1.0f),
-                    softness_(2.0f), maxBrightness_(1.0f), frameCount_(0), morphAspect_(true), rng_(std::random_device{}()) {}
+    SnowflakeEffect()
+        : numFlakes_(150), avgSize_(3.0f), sizeVariance_(1.5f),
+            avgMotionX_(0.5f), avgMotionY_(2.0f), motionRandomness_(1.0f),
+            softness_(2.0f), maxBrightness_(1.0f), brightnessSpeed_(1.0f), frameCount_(0), morphAspect_(true), rng_(std::random_device{}()) {}
         
     
     std::string getName() const override {
@@ -149,6 +156,7 @@ public:
                   << "  --randomness <float>   Motion randomness (default: 1.0)\n"
                   << "  --softness <float>     Edge softness/blur (default: 2.0)\n"
                   << "  --brightness <float>   Max brightness 0.0-1.0 (default: 1.0)\n"
+                  << "  --brightness-speed <float>  Average speed of brightness pulsing (default: 1.0). Set to 0 to disable pulsing.\n"
                   << "  --morph-aspect         Enable aspect-ratio morphing for flakes (default: enabled)\n"
                   << "  --no-morph-aspect      Disable aspect-ratio morphing (flakes stay circular)\n";
     }
@@ -179,6 +187,9 @@ public:
             return true;
         } else if (arg == "--brightness" && i + 1 < argc) {
             maxBrightness_ = std::atof(argv[++i]);
+            return true;
+        } else if (arg == "--brightness-speed" && i + 1 < argc) {
+            brightnessSpeed_ = std::atof(argv[++i]);
             return true;
         } else if (arg == "--morph-aspect") {
             morphAspect_ = true;
