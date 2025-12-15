@@ -131,6 +131,8 @@ private:
     bool startBackgroundVideo(const char* filename);
     bool readVideoFrame();
     bool startFFmpegOutput(const char* filename);
+    // Probe the duration (in seconds) of a video file using ffprobe if available.
+    double probeVideoDuration(const char* filename);
     float getFadeMultiplier(int frameNumber, int totalFrames);
     
 public:

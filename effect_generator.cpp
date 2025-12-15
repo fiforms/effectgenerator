@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <climits>
+#include <cmath>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -105,7 +106,53 @@ bool VideoGenerator::startBackgroundVideo(const char* filename) {
     
     backgroundBuffer_.resize(width_ * height_ * 3);
     std::cout << "Background video opened: " << filename << "\n";
+    // Remember the background video path for duration probing
+    backgroundVideo_ = filename;
     return true;
+}
+
+double VideoGenerator::probeVideoDuration(const char* filename) {
+    if (!filename) return -1.0;
+
+    // Derive ffprobe path from ffmpeg path when possible
+    std::string ffprobe = "ffprobe";
+    std::string ffmpegBase = ffmpegPath_;
+    size_t pos = ffmpegBase.find_last_of("/\\");
+    std::string bin = (pos == std::string::npos) ? ffmpegBase : ffmpegBase.substr(pos + 1);
+    if (bin.find("ffmpeg") != std::string::npos) {
+        std::string dir = (pos == std::string::npos) ? std::string() : ffmpegBase.substr(0, pos + 1);
+        std::string probeName = bin;
+        // Replace "ffmpeg" with "ffprobe" in the binary name
+        size_t r = probeName.find("ffmpeg");
+        if (r != std::string::npos) probeName.replace(r, 6, "ffprobe");
+        ffprobe = dir + probeName;
+    }
+
+    // Build command to get duration in seconds (quiet output)
+    char cmd[4096];
+#ifdef _WIN32
+    // Windows: redirect stderr to NUL
+    snprintf(cmd, sizeof(cmd), "\"%s\" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"%s\" 2>NUL", ffprobe.c_str(), filename);
+#else
+    snprintf(cmd, sizeof(cmd), "\"%s\" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"%s\" 2>/dev/null", ffprobe.c_str(), filename);
+#endif
+
+    FILE* pipe = popen(cmd, "r");
+    if (!pipe) return -1.0;
+
+    char buf[128];
+    std::string out;
+    while (fgets(buf, sizeof(buf), pipe)) {
+        out += buf;
+    }
+    pclose(pipe);
+
+    if (out.empty()) return -1.0;
+
+    // Parse as double
+    double secs = atof(out.c_str());
+    if (secs <= 0.0) return -1.0;
+    return secs;
 }
 
 bool VideoGenerator::readVideoFrame() {
@@ -183,15 +230,28 @@ bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outpu
         return false;
     }
     
-    // If duration is -1 and we have a video background, run until video ends
-    bool autoDetectDuration = (durationSec == -1 && isVideo_);
-    int totalFrames = autoDetectDuration ? INT_MAX : fps_ * durationSec;
-    
-    if (autoDetectDuration) {
-        std::cout << "Generating frames until input video ends...\n";
-    } else {
+    // If durationSec <= 0 and we have a video background, try to probe the video's length
+    int totalFrames = 0;
+    if (isVideo_ && durationSec <= 0) {
+        double secs = probeVideoDuration(backgroundVideo_.c_str());
+        if (secs > 0.0) {
+            totalFrames = (int)std::round(secs * fps_);
+            std::cout << "Auto-detected background video duration: " << secs << "s (" << totalFrames << " frames)\n";
+        } else {
+            // Fallback: generate until input video ends (previous behavior)
+            totalFrames = INT_MAX;
+            std::cout << "Could not probe video duration; generating until input video ends...\n";
+        }
+    } else if (durationSec > 0) {
+        totalFrames = fps_ * durationSec;
         std::cout << "Generating " << totalFrames << " frames (" << durationSec << "s @ " << fps_ << " fps)...\n";
+    } else {
+        // No duration and not a video background: default to 0 frames (no output)
+        std::cerr << "No duration provided and no background video available\n";
+        return false;
     }
+    // If probing failed we set totalFrames to INT_MAX to indicate "run until input ends"
+    bool autoDetectDuration = (totalFrames == INT_MAX);
     
     int frameCount = 0;
     
