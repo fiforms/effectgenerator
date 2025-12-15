@@ -45,10 +45,13 @@ public:
     // Called after each frame is rendered (for animation updates)
     virtual void update() = 0;
     
-    // Optional: for effects that need post-processing with frame index knowledge
-    virtual void postProcess(std::vector<uint8_t>& frame, int frameIndex, int totalFrames) {
-        // Default: do nothing
+    // Optional: for effects that need post-processing with frame index knowledge.
+    // The `dropFrame` parameter may be set to `true` by the effect to indicate
+    // that the current frame should be dropped (not written to the output).
+    virtual void postProcess(std::vector<uint8_t>& frame, int frameIndex, int totalFrames, bool& dropFrame) {
+        // Default: do nothing, do not drop frame
         (void)frame; (void)frameIndex; (void)totalFrames;
+        dropFrame = false;
     }
 };
 

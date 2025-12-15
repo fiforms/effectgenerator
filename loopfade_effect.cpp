@@ -86,10 +86,9 @@ public:
             return;
         }
         
-        // Capture frames offset by crossfade duration from start
-        // These represent what the video should look like after one loop
-        if (currentFrame_ >= crossfadeFrames_ && currentFrame_ < crossfadeFrames_ * 2) {
-            int storeIdx = currentFrame_ - crossfadeFrames_;
+        // Capture frames from start
+        if (currentFrame_ < crossfadeFrames_) {
+            int storeIdx = currentFrame_;
             if (storeIdx < (int)beginningFrames_.size()) {
                 std::copy(frame.begin(), frame.end(), beginningFrames_[storeIdx].begin());
                 if (!capturedBeginning_ && storeIdx == 0) {
@@ -104,14 +103,23 @@ public:
         currentFrame_++;
     }
     
-    void postProcess(std::vector<uint8_t>& frame, int frameIndex, int totalFrames) override {
+    void postProcess(std::vector<uint8_t>& frame, int frameIndex, int totalFrames, bool& dropFrame) override {
+        // Do not drop frames by default
+        dropFrame = false;
+
         // Store total frames on first call
         if (expectedTotalFrames_ == -1) {
             expectedTotalFrames_ = totalFrames;
             std::cout << "Total frames: " << totalFrames << ", crossfade starts at frame " 
                       << (totalFrames - crossfadeFrames_) << "\n";
         }
-        
+
+        if(frameIndex <= crossfadeFrames_) {
+            // Drop the initial frames 
+            dropFrame = true;
+            return;
+        }
+
         // Calculate if we're in the crossfade zone
         int fadeStartFrame = totalFrames - crossfadeFrames_;
         
