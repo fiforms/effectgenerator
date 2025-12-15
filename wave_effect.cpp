@@ -37,6 +37,8 @@ private:
     float lightAngle_;         // Angle from top-left for lighting (radians)
     float lightIntensity_;     // Strength of directional lighting effect
     float waveInterference_;   // How much waves interfere (0.0-1.0)
+    float displacementScale_;  // Pixel displacement multiplier
+    bool useDisplacement_;     // Whether to use displacement or brightness modulation
     
     // Random generation
     float sourceSpawnProb_;    // Probability of spawning new source each frame
@@ -170,6 +172,7 @@ public:
         : numSources_(3), baseAmplitude_(0.15f), baseFrequency_(0.02f),
           baseSpeed_(10.0f), baseDecay_(0.001f),
           lightAngle_(-M_PI / 4.0f), lightIntensity_(0.3f), waveInterference_(1.0f),
+          displacementScale_(10.0f), useDisplacement_(true),
           sourceSpawnProb_(0.02f), offscreenProb_(0.3f),
           minLifetime_(2.0f), maxLifetime_(8.0f),
           rng_(std::random_device{}()), frameCount_(0) {}
@@ -192,6 +195,8 @@ public:
                   << "  --light-angle <float>   Light direction in degrees (default: -45, top-left)\n"
                   << "  --light-intensity <float> Lighting effect strength (default: 0.3)\n"
                   << "  --interference <float>  Wave interference amount 0.0-1.0 (default: 1.0)\n"
+                  << "  --no-displacement       Disable pixel displacement (brightness only)\n"
+                  << "  --displacement-scale <float> Displacement strength in pixels (default: 10.0)\n"
                   << "  --spawn-prob <float>    Random source spawn probability (default: 0.02)\n"
                   << "  --offscreen-prob <float> Probability source is offscreen (default: 0.3)\n"
                   << "  --min-lifetime <float>  Min source lifetime in seconds (default: 2.0)\n"
@@ -225,6 +230,12 @@ public:
             return true;
         } else if (arg == "--interference" && i + 1 < argc) {
             waveInterference_ = std::atof(argv[++i]);
+            return true;
+        } else if (arg == "--no-displacement") {
+            useDisplacement_ = false;
+            return true;
+        } else if (arg == "--displacement-scale" && i + 1 < argc) {
+            displacementScale_ = std::atof(argv[++i]);
             return true;
         } else if (arg == "--spawn-prob" && i + 1 < argc) {
             sourceSpawnProb_ = std::atof(argv[++i]);
@@ -263,9 +274,49 @@ public:
         }
         
         std::cout << "Wave effect initialized with " << numSources_ << " initial sources\n";
-        std::cout << "Light angle: " << (lightAngle_ * 180.0f / M_PI) << " degrees\n";
+        if (useDisplacement_) {
+            std::cout << "Using displacement mode with scale: " << displacementScale_ << " pixels\n";
+        } else {
+            std::cout << "Using brightness modulation mode\n";
+            std::cout << "Light angle: " << (lightAngle_ * 180.0f / M_PI) << " degrees\n";
+        }
         
         return true;
+    }
+    
+    // Bilinear interpolation for smooth sampling
+    void samplePixel(const std::vector<uint8_t>& sourceFrame, float x, float y, uint8_t* rgb) {
+        // Clamp coordinates
+        x = std::clamp(x, 0.0f, (float)(width_ - 1));
+        y = std::clamp(y, 0.0f, (float)(height_ - 1));
+        
+        int x0 = (int)std::floor(x);
+        int y0 = (int)std::floor(y);
+        int x1 = std::min(x0 + 1, width_ - 1);
+        int y1 = std::min(y0 + 1, height_ - 1);
+        
+        float fx = x - x0;
+        float fy = y - y0;
+        
+        // Get the four surrounding pixels
+        int idx00 = (y0 * width_ + x0) * 3;
+        int idx10 = (y0 * width_ + x1) * 3;
+        int idx01 = (y1 * width_ + x0) * 3;
+        int idx11 = (y1 * width_ + x1) * 3;
+        
+        // Bilinear interpolation for each color channel
+        for (int c = 0; c < 3; c++) {
+            float v00 = sourceFrame[idx00 + c];
+            float v10 = sourceFrame[idx10 + c];
+            float v01 = sourceFrame[idx01 + c];
+            float v11 = sourceFrame[idx11 + c];
+            
+            float v0 = v00 * (1.0f - fx) + v10 * fx;
+            float v1 = v01 * (1.0f - fx) + v11 * fx;
+            float v = v0 * (1.0f - fy) + v1 * fy;
+            
+            rgb[c] = (uint8_t)std::clamp(v, 0.0f, 255.0f);
+        }
     }
     
     void renderFrame(std::vector<uint8_t>& frame, bool hasBackground, float fadeMultiplier) override {
@@ -287,8 +338,43 @@ public:
                     frame[idx + 2] = value;
                 }
             }
+        } else if (useDisplacement_) {
+            // Displacement mode: distort the image AND apply brightness modulation
+            // Make a copy of the current frame to sample from
+            std::vector<uint8_t> originalFrame = frame;
+            
+            for (int y = 0; y < height_; y++) {
+                for (int x = 0; x < width_; x++) {
+                    float waveHeight = calculateWaveHeight(x, y);
+                    
+                    // Displacement direction: lower-right for positive waves, upper-left for negative
+                    // This creates the "refraction" effect
+                    float displacementX = waveHeight * displacementScale_;
+                    float displacementY = waveHeight * displacementScale_;
+                    
+                    // Sample from the displaced position
+                    float sourceX = x - displacementX;
+                    float sourceY = y - displacementY;
+                    
+                    int idx = (y * width_ + x) * 3;
+                    uint8_t rgb[3];
+                    samplePixel(originalFrame, sourceX, sourceY, rgb);
+                    
+                    // Calculate brightness modulation based on directional lighting
+                    float lightMod = calculateDirectionalLight(x, y, waveHeight);
+                    float brightnessMod = 1.0f + lightMod;
+                    brightnessMod = std::clamp(brightnessMod, 0.5f, 1.5f);
+                    brightnessMod *= fadeMultiplier;
+                    
+                    // Apply both displacement AND brightness modulation
+                    for (int c = 0; c < 3; c++) {
+                        float modulated = (rgb[c] / 255.0f) * brightnessMod;
+                        frame[idx + c] = (uint8_t)(std::clamp(modulated, 0.0f, 1.0f) * 255);
+                    }
+                }
+            }
         } else {
-            // With background, modulate brightness based on waves and lighting
+            // Brightness modulation only mode (original behavior)
             for (int y = 0; y < height_; y++) {
                 for (int x = 0; x < width_; x++) {
                     float waveHeight = calculateWaveHeight(x, y);
