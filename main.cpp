@@ -142,8 +142,8 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    // Create video generator
-    VideoGenerator generator(width, height, fps, fadeDuration);
+    // Create video generator (pass CLI CRF through)
+    VideoGenerator generator(width, height, fps, fadeDuration, crf);
     
     // Set background if specified
     if (!backgroundImage.empty()) {

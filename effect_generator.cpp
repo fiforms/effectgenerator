@@ -7,6 +7,8 @@
 #include <cstring>
 #include <climits>
 #include <cmath>
+#include <algorithm>
+#include <cctype>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -179,7 +181,6 @@ bool VideoGenerator::startFFmpegOutput(const char* filename) {
     
     // Check for custom FFmpeg parameters from environment
     const char* customParams = std::getenv("FFMPEG_PARAMETERS");
-    
     if (customParams && customParams[0] != '\0') {
         // Use custom parameters from environment variable
         snprintf(cmd, sizeof(cmd),
@@ -188,11 +189,37 @@ bool VideoGenerator::startFFmpegOutput(const char* filename) {
                 ffmpegPath_.c_str(), width_, height_, fps_, customParams, filename);
         std::cout << "Using custom FFmpeg parameters from FFMPEG_PARAMETERS\n";
     } else {
-        // Use default parameters with configurable CRF
-        snprintf(cmd, sizeof(cmd),
-                "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
-                "-c:v libx264 -preset medium -crf %d -pix_fmt yuv420p \"%s\"",
-                ffmpegPath_.c_str(), width_, height_, fps_, crf_, filename);
+        // Determine output extension (lowercase)
+        std::string outExt;
+        if (filename) {
+            std::string out(filename);
+            size_t dot = out.find_last_of('.');
+            if (dot != std::string::npos && dot + 1 < out.size()) {
+                outExt = out.substr(dot + 1);
+                std::transform(outExt.begin(), outExt.end(), outExt.begin(), [](unsigned char c){ return std::tolower(c); });
+            }
+        }
+
+        // Use different codec parameters depending on extension
+        if (outExt == "webm") {
+            // AV1 via SVT-AV1 for .webm outputs (preset 7)
+            snprintf(cmd, sizeof(cmd),
+                    "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
+                    "-c:v libsvtav1 -preset 7 -crf %d -pix_fmt yuv420p \"%s\"",
+                    ffmpegPath_.c_str(), width_, height_, fps_, crf_, filename);
+        } else if (outExt == "mov") {
+            // ProRes output for .mov (using prores_ks)
+            snprintf(cmd, sizeof(cmd),
+                    "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
+                    "-c:v prores_ks -profile:v 3 -qscale:v %d -pix_fmt yuv422p10le \"%s\"",
+                    ffmpegPath_.c_str(), width_, height_, fps_, crf_, filename);
+        } else {
+            // Default: H.264 with configurable CRF
+            snprintf(cmd, sizeof(cmd),
+                    "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
+                    "-c:v libx264 -preset medium -crf %d -pix_fmt yuv420p \"%s\"",
+                    ffmpegPath_.c_str(), width_, height_, fps_, crf_, filename);
+        }
     }
     
     ffmpegOutput_ = popen(cmd, "w");
