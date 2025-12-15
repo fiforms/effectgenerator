@@ -221,15 +221,6 @@ bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outpu
     
     std::cout << "FFmpeg path: " << ffmpegPath_ << "\n";
     
-    if (!effect->initialize(width_, height_, fps_)) {
-        std::cerr << "Effect initialization failed\n";
-        return false;
-    }
-    
-    if (!startFFmpegOutput(outputFile)) {
-        return false;
-    }
-    
     // If durationSec <= 0 and we have a video background, try to probe the video's length
     int totalFrames = 0;
     if (isVideo_ && durationSec <= 0) {
@@ -252,9 +243,19 @@ bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outpu
     }
     // If probing failed we set totalFrames to INT_MAX to indicate "run until input ends"
     bool autoDetectDuration = (totalFrames == INT_MAX);
+
     // Inform effect about total frame count when known (needed for warmup replay)
     if (totalFrames != INT_MAX) {
         effect->setTotalFrames(totalFrames);
+    }
+
+    if (!effect->initialize(width_, height_, fps_)) {
+        std::cerr << "Effect initialization failed\n";
+        return false;
+    }
+
+    if (!startFFmpegOutput(outputFile)) {
+        return false;
     }
     
     int frameCount = 0;

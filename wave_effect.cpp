@@ -328,11 +328,11 @@ private:
     
 public:
         WaveEffect()
-        : numSources_(3), baseAmplitude_(0.15f), baseFrequency_(0.02f),
+        : numSources_(3), baseAmplitude_(0.3f), baseFrequency_(0.02f),
           baseSpeed_(2.0f), baseDecay_(0.001f),
           lightAngle_(-M_PI / 4.0f), lightIntensity_(0.3f), waveInterference_(1.0f),
                     displacementScale_(10.0f), useDisplacement_(true), waveDirection_(""),
-          sourceSpawnProb_(0.02f), offscreenProb_(0.3f),
+          sourceSpawnProb_(0.06f), offscreenProb_(0.5f),
                     minLifetime_(2.0f), maxLifetime_(8.0f),
                     rng_(std::random_device{}()), frameCount_(0), warmupSeconds_(0.0f), warmupFrames_(0), targetTotalFrames_(-1) {}
     
@@ -348,7 +348,7 @@ public:
         std::cout << "Wave Effect Options:\n"
                   << "  --sources <int>         Initial number of wave sources,\n"
                   << "                          likely irrelevant with warmup (default: 3)\n"
-                  << "  --amplitude <float>     Base wave amplitude (default: 0.15)\n"
+                  << "  --amplitude <float>     Base wave amplitude (default: 0.3)\n"
                   << "  --frequency <float>     Base wave frequency (default: 0.02)\n"
                   << "  --speed <float>         Wave propagation speed (default: 2.0)\n"
                   << "  --decay <float>         Wave decay with distance (default: 0.001)\n"
@@ -360,8 +360,8 @@ public:
                   << "  --interference <float>  Wave interference amount 0.0-1.0 (default: 1.0)\n"
                   << "  --no-displacement       Disable pixel displacement (brightness only)\n"
                   << "  --displacement-scale <float> Displacement strength in pixels (default: 10.0)\n"
-                  << "  --spawn-prob <float>    Random source spawn probability (default: 0.02)\n"
-                  << "  --offscreen-prob <float> Probability source is offscreen (default: 0.3)\n"
+                  << "  --spawn-prob <float>    Random source spawn probability (default: 0.06)\n"
+                  << "  --offscreen-prob <float> Probability source is offscreen (default: 0.5)\n"
                   << "                          (ignored in directional mode - always offscreen)\n"
                   << "  --min-lifetime <float>  Min source lifetime in seconds (default: 5.0)\n"
                   << "  --max-lifetime <float>  Max source lifetime in seconds (default: 30.0)\n";
@@ -429,6 +429,17 @@ public:
         height_ = height;
         fps_ = fps;
         frameCount_ = 0;
+
+        // If user didn't request an explicit warmup, but we were informed of
+        // the total frame count earlier via setTotalFrames(), default the
+        // warmup to (video_length - 5s) when the video is shorter than 65s.
+        if (warmupSeconds_ <= 0.0f && targetTotalFrames_ > 0) {
+            double totalSecs = (double)targetTotalFrames_ / (double)fps_;
+            //if (totalSecs >= 30.0 && totalSecs < 75.0) {
+                warmupSeconds_ = std::max(0.0, totalSecs + 30.0);
+                std::cout << "Defaulting warmup to " << warmupSeconds_ << "s based on video length\n";
+            //}
+        }
         
         // Prepare warmup recording if requested (allocate before initial sources)
         if (warmupSeconds_ > 0.0f) {
