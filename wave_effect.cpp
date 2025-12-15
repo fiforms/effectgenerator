@@ -39,6 +39,7 @@ private:
     float waveInterference_;   // How much waves interfere (0.0-1.0)
     float displacementScale_;  // Pixel displacement multiplier
     bool useDisplacement_;     // Whether to use displacement or brightness modulation
+    std::string waveDirection_; // Direction for directional waves (empty = omnidirectional)
     
     // Random generation
     float sourceSpawnProb_;    // Probability of spawning new source each frame
@@ -50,12 +51,68 @@ private:
     std::mt19937 rng_;
     int frameCount_;
     
+    void getSpawnRegionForDirection(const std::string& dir, float& minX, float& maxX, float& minY, float& maxY) {
+        // Offscreen margin
+        float margin = std::max(width_, height_) * 0.15f;
+        
+        if (dir == "up") {
+            minX = -margin;
+            maxX = width_ + margin;
+            minY = height_ + margin;
+            maxY = height_ + margin * 2;
+        } else if (dir == "down") {
+            minX = -margin;
+            maxX = width_ + margin;
+            minY = -margin * 2;
+            maxY = -margin;
+        } else if (dir == "left") {
+            minX = width_ + margin;
+            maxX = width_ + margin * 2;
+            minY = -margin;
+            maxY = height_ + margin;
+        } else if (dir == "right") {
+            minX = -margin * 2;
+            maxX = -margin;
+            minY = -margin;
+            maxY = height_ + margin;
+        } else if (dir == "upleft") {
+            minX = width_ + margin;
+            maxX = width_ + margin * 2;
+            minY = height_ + margin;
+            maxY = height_ + margin * 2;
+        } else if (dir == "upright") {
+            minX = -margin * 2;
+            maxX = -margin;
+            minY = height_ + margin;
+            maxY = height_ + margin * 2;
+        } else if (dir == "downleft") {
+            minX = width_ + margin;
+            maxX = width_ + margin * 2;
+            minY = -margin * 2;
+            maxY = -margin;
+        } else if (dir == "downright") {
+            minX = -margin * 2;
+            maxX = -margin;
+            minY = -margin * 2;
+            maxY = -margin;
+        } else {
+            // Shouldn't reach here, but default to off-screen
+            minX = -margin;
+            maxX = width_ + margin;
+            minY = -margin;
+            maxY = height_ + margin;
+        }
+    }
+    
     void createSource(float x, float y, int startFrame, int duration) {
         std::uniform_real_distribution<float> distFreq(baseFrequency_ * 0.5f, baseFrequency_ * 2.0f);
-        std::normal_distribution<float> distAmp(baseAmplitude_, baseAmplitude_ * 0.3f);
         std::normal_distribution<float> distSpeed(baseSpeed_, baseSpeed_ * 0.15f);
         std::uniform_real_distribution<float> distDecay(baseDecay_ * 0.8f, baseDecay_ * 1.2f);
         std::uniform_real_distribution<float> distStrength(0.5f, 1.0f);
+        
+        // Double amplitude for directional waves to account for decay over distance
+        float amplitudeMultiplier = waveDirection_.empty() ? 1.0f : 2.0f;
+        std::normal_distribution<float> distAmp(baseAmplitude_ * amplitudeMultiplier, baseAmplitude_ * amplitudeMultiplier * 0.3f);
         
         WaveSource ws;
         ws.x = x;
@@ -85,29 +142,41 @@ private:
     
     void spawnRandomSource() {
         std::uniform_real_distribution<float> prob(0.0f, 1.0f);
-        std::uniform_real_distribution<float> distX(-width_ * 0.2f, width_ * 1.2f);
-        std::uniform_real_distribution<float> distY(-height_ * 0.2f, height_ * 1.2f);
         std::uniform_real_distribution<float> distLife(minLifetime_, maxLifetime_);
         
         if (prob(rng_) < sourceSpawnProb_) {
             float x, y;
             
-            // Decide if offscreen
-            if (prob(rng_) < offscreenProb_) {
-                // Place offscreen
-                int edge = (int)(prob(rng_) * 4); // 0=top, 1=right, 2=bottom, 3=left
-                switch (edge) {
-                    case 0: x = distX(rng_); y = -height_ * 0.1f; break;
-                    case 1: x = width_ * 1.1f; y = distY(rng_); break;
-                    case 2: x = distX(rng_); y = height_ * 1.1f; break;
-                    default: x = -width_ * 0.1f; y = distY(rng_); break;
-                }
+            if (!waveDirection_.empty()) {
+                // Directional mode - spawn in specific region
+                float minX, maxX, minY, maxY;
+                getSpawnRegionForDirection(waveDirection_, minX, maxX, minY, maxY);
+                std::uniform_real_distribution<float> distX(minX, maxX);
+                std::uniform_real_distribution<float> distY(minY, maxY);
+                x = distX(rng_);
+                y = distY(rng_);
             } else {
-                // Place onscreen
-                std::uniform_real_distribution<float> distOnX(0.0f, width_);
-                std::uniform_real_distribution<float> distOnY(0.0f, height_);
-                x = distOnX(rng_);
-                y = distOnY(rng_);
+                // Omnidirectional mode - use original logic
+                std::uniform_real_distribution<float> distX(-width_ * 0.2f, width_ * 1.2f);
+                std::uniform_real_distribution<float> distY(-height_ * 0.2f, height_ * 1.2f);
+                
+                // Decide if offscreen
+                if (prob(rng_) < offscreenProb_) {
+                    // Place offscreen
+                    int edge = (int)(prob(rng_) * 4); // 0=top, 1=right, 2=bottom, 3=left
+                    switch (edge) {
+                        case 0: x = distX(rng_); y = -height_ * 0.1f; break;
+                        case 1: x = width_ * 1.1f; y = distY(rng_); break;
+                        case 2: x = distX(rng_); y = height_ * 1.1f; break;
+                        default: x = -width_ * 0.1f; y = distY(rng_); break;
+                    }
+                } else {
+                    // Place onscreen
+                    std::uniform_real_distribution<float> distOnX(0.0f, width_);
+                    std::uniform_real_distribution<float> distOnY(0.0f, height_);
+                    x = distOnX(rng_);
+                    y = distOnY(rng_);
+                }
             }
             
             int lifetime = (int)(distLife(rng_) * fps_);
@@ -172,7 +241,7 @@ public:
         : numSources_(3), baseAmplitude_(0.15f), baseFrequency_(0.02f),
           baseSpeed_(10.0f), baseDecay_(0.001f),
           lightAngle_(-M_PI / 4.0f), lightIntensity_(0.3f), waveInterference_(1.0f),
-          displacementScale_(10.0f), useDisplacement_(true),
+          displacementScale_(10.0f), useDisplacement_(true), waveDirection_(""),
           sourceSpawnProb_(0.02f), offscreenProb_(0.3f),
           minLifetime_(2.0f), maxLifetime_(8.0f),
           rng_(std::random_device{}()), frameCount_(0) {}
@@ -192,6 +261,8 @@ public:
                   << "  --frequency <float>     Base wave frequency (default: 0.02)\n"
                   << "  --speed <float>         Wave propagation speed (default: 10.0)\n"
                   << "  --decay <float>         Wave decay with distance (default: 0.001)\n"
+                  << "  --direction <string>    Wave direction: up, down, left, right, upleft, upright,\n"
+                  << "                          downleft, downright (default: omni-directional)\n"
                   << "  --light-angle <float>   Light direction in degrees (default: -45, top-left)\n"
                   << "  --light-intensity <float> Lighting effect strength (default: 0.3)\n"
                   << "  --interference <float>  Wave interference amount 0.0-1.0 (default: 1.0)\n"
@@ -199,6 +270,7 @@ public:
                   << "  --displacement-scale <float> Displacement strength in pixels (default: 10.0)\n"
                   << "  --spawn-prob <float>    Random source spawn probability (default: 0.02)\n"
                   << "  --offscreen-prob <float> Probability source is offscreen (default: 0.3)\n"
+                  << "                          (ignored in directional mode - always offscreen)\n"
                   << "  --min-lifetime <float>  Min source lifetime in seconds (default: 2.0)\n"
                   << "  --max-lifetime <float>  Max source lifetime in seconds (default: 8.0)\n";
     }
@@ -249,6 +321,9 @@ public:
         } else if (arg == "--max-lifetime" && i + 1 < argc) {
             maxLifetime_ = std::atof(argv[++i]);
             return true;
+        } else if (arg == "--direction" && i + 1 < argc) {
+            waveDirection_ = argv[++i];
+            return true;
         }
         
         return false;
@@ -275,9 +350,10 @@ public:
         
         std::cout << "Wave effect initialized with " << numSources_ << " initial sources\n";
         if (useDisplacement_) {
-            std::cout << "Using displacement mode with scale: " << displacementScale_ << " pixels\n";
+            std::cout << "Using displacement + brightness mode with scale: " << displacementScale_ << " pixels\n";
+            std::cout << "Light angle: " << (lightAngle_ * 180.0f / M_PI) << " degrees\n";
         } else {
-            std::cout << "Using brightness modulation mode\n";
+            std::cout << "Using brightness modulation only mode\n";
             std::cout << "Light angle: " << (lightAngle_ * 180.0f / M_PI) << " degrees\n";
         }
         
