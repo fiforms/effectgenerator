@@ -22,6 +22,8 @@ struct Snowflake {
     float sizeFreq;
     float sizeAmpX;
     float sizeAmpY;
+    bool spinHorizontal;
+    bool spinEnabled;
     // per-flake color
     float colorR;
     float colorG;
@@ -43,7 +45,10 @@ private:
     float saturation_; // 0..1
     float hueRange_; // 0..1
     int frameCount_;
-    bool morphAspect_;
+    bool spin_;
+    float spinFraction_;
+    float spinMinAspect_;
+    int spinAxis_; // 0=random, 1=horizontal, 2=vertical
     
     std::vector<Snowflake> flakes_;
     std::mt19937 rng_;
@@ -104,12 +109,24 @@ private:
         // size/shape pulse params (separate from brightness)
         f.sizePhase = distPhase(rng_);
         f.sizeFreq = distSizeFreq(rng_);
-        // allow different X/Y pulsing amplitudes for slight elliptical variation
-        if (morphAspect_) {
-            f.sizeAmpX = distSizeAmp(rng_);
-            f.sizeAmpY = distSizeAmp(rng_) * (0.6f + 0.8f * (std::uniform_real_distribution<float>(0.0f,1.0f)(rng_)));
+        // size/shape pulse params
+        // Decide whether this flake will spin (only a portion do)
+        if (spin_ && (std::uniform_real_distribution<float>(0.0f,1.0f)(rng_) < spinFraction_)) {
+            f.spinEnabled = true;
+            // Decide axis according to spinAxis_ setting
+            if (spinAxis_ == 1) {
+                f.spinHorizontal = true;
+            } else if (spinAxis_ == 2) {
+                f.spinHorizontal = false;
+            } else {
+                f.spinHorizontal = (std::uniform_real_distribution<float>(0.0f,1.0f)(rng_) < 0.5f);
+            }
+            // store small amplitude values in case non-spin fallback needed
+            f.sizeAmpX = distSizeAmp(rng_) * 0.3f;
+            f.sizeAmpY = distSizeAmp(rng_) * 0.3f;
         } else {
-            float v = distSizeAmp(rng_) * 0.25f; // small uniform size wobble when disabled
+            f.spinEnabled = false;
+            float v = distSizeAmp(rng_) * 0.25f; // small uniform wobble when spin disabled
             f.sizeAmpX = v;
             f.sizeAmpY = v;
         }
@@ -190,7 +207,7 @@ public:
     SnowflakeEffect()
         : numFlakes_(150), avgSize_(3.0f), sizeVariance_(1.5f),
             avgMotionX_(0.5f), avgMotionY_(2.0f), motionRandomness_(1.0f),
-            softness_(2.0f), maxBrightness_(1.0f), brightnessSpeed_(1.0f), avgHue_(0.0f), saturation_(0.0f), hueRange_(0.0f), frameCount_(0), morphAspect_(true), rng_(std::random_device{}()) {}
+            softness_(2.0f), maxBrightness_(1.0f), brightnessSpeed_(1.0f), avgHue_(0.0f), saturation_(0.0f), hueRange_(0.0f), frameCount_(0), spin_(false), spinFraction_(0.35f), spinMinAspect_(0.1f), spinAxis_(0), rng_(std::random_device{}()) {}
         
     
     std::string getName() const override {
@@ -215,8 +232,8 @@ public:
                   << "  --hue <float>          Average hue 0.0-1.0 (default: 0.0 - only matters when saturation>0)\n"
                   << "  --saturation <float>   Saturation 0.0-1.0 (default: 0.0 = white)\n"
                   << "  --hue-range <float>    Hue range 0.0-1.0 (0 = same hue, 1 = full range)\n"
-                  << "  --morph-aspect         Enable aspect-ratio morphing for flakes (default: enabled)\n"
-                  << "  --no-morph-aspect      Disable aspect-ratio morphing (flakes stay circular)\n";
+                  << "  --spin                 Enable spin-like aspect morphing (gives 3D spin illusion)\n"
+                  << "  --spin-axis <h|v|random>  Axis for spin: h=horizontal, v=vertical, random=per-flake random (default: random)\n";
     }
     
     bool parseArgs(int argc, char** argv, int& i) override {
@@ -258,11 +275,14 @@ public:
         } else if (arg == "--hue-range" && i + 1 < argc) {
             hueRange_ = std::atof(argv[++i]);
             return true;
-        } else if (arg == "--morph-aspect") {
-            morphAspect_ = true;
+        } else if (arg == "--spin") {
+            spin_ = true;
             return true;
-        } else if (arg == "--no-morph-aspect") {
-            morphAspect_ = false;
+        } else if (arg == "--spin-axis" && i + 1 < argc) {
+            std::string v = argv[++i];
+            if (v == "h" || v == "horizontal") spinAxis_ = 1;
+            else if (v == "v" || v == "vertical") spinAxis_ = 2;
+            else spinAxis_ = 0;
             return true;
         }
         
@@ -308,8 +328,25 @@ public:
 
             // size/shape pulse (separate time/phase)
             float tSize = time * f.sizeFreq * TWO_PI + f.sizePhase;
-            float rx = std::max(0.5f, f.radius * (1.0f + f.sizeAmpX * std::sin(tSize)));
-            float ry = std::max(0.5f, f.radius * (1.0f + f.sizeAmpY * std::sin(tSize + 0.7f)));
+            float rx, ry;
+            if (f.spinEnabled) {
+                // map sin(t) in [-1,1] -> u in [0,1]
+                float u = 0.5f * (1.0f + std::sin(tSize));
+                // aspect oscillates between 1.0 and spinMinAspect_
+                float aspect = 1.0f - u * (1.0f - spinMinAspect_);
+                float major = f.radius;
+                float minor = std::max(0.5f, f.radius * aspect);
+                if (f.spinHorizontal) {
+                    rx = major;
+                    ry = minor;
+                } else {
+                    rx = minor;
+                    ry = major;
+                }
+            } else {
+                rx = std::max(0.5f, f.radius * (1.0f + f.sizeAmpX * std::sin(tSize)));
+                ry = std::max(0.5f, f.radius * (1.0f + f.sizeAmpY * std::sin(tSize + 0.7f)));
+            }
 
             drawEllipse(frame, (int)f.x, (int)f.y, rx, ry, opacity, fadeMultiplier, f.colorR, f.colorG, f.colorB);
         }

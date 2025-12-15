@@ -107,6 +107,8 @@ effectgenerator --effect snowflake --width 3840 --height 2160 --fps 60
 - `--randomness <float>` - Motion turbulence (default: 1.0)
 - `--softness <float>` - Edge blur (default: 2.0)
 - `--brightness <float>` - Maximum brightness 0.0-1.0 (default: 1.0)
+- `--spin` - Enable spin-like aspect morphing (gives 3D spin illusion)
+- `--spin-axis <h|v|random>` - Axis for spin: `h`=horizontal, `v`=vertical, `random`=per-flake random (default: `random`)
 
 ## Adding New Effects
 
