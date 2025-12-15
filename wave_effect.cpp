@@ -24,6 +24,19 @@ struct WaveSource {
     int rampDownFrames;   // Frames to ramp down to zero
 };
 
+// Recorded spawn specification used for warmup recording/replay
+struct SpawnSpec {
+    float x, y;
+    int duration; // frames
+    float frequency;
+    float amplitude;
+    float targetStrength;
+    float speed;
+    float decay;
+    int rampUpFrames;
+    int rampDownFrames;
+};
+
 class WaveEffect : public Effect {
 private:
     int width_, height_, fps_;
@@ -48,6 +61,12 @@ private:
     float maxLifetime_;        // Maximum wave source lifetime (seconds)
     // Warmup (pre-simulate) to stabilize the field before first output
     float warmupSeconds_;
+    int warmupFrames_;
+    // Recorded spawns per warmup-frame index
+    std::vector<std::vector<SpawnSpec>> warmupSpawns_;
+    // If >0, when setTotalFrames() is called, we will replay warmupSpawns_
+    // at the end of the video (to make the video loop seamlessly)
+    int targetTotalFrames_;
     
     std::vector<WaveSource> sources_;
     std::mt19937 rng_;
@@ -141,8 +160,46 @@ private:
         
         sources_.push_back(ws);
     }
+
+    // Create a source from a recorded SpawnSpec. startFrame overrides the stored
+    // start so the recorded spawn can be replayed at a new time.
+    void createSourceFromSpec(const SpawnSpec& spec, int startFrame) {
+        WaveSource ws;
+        ws.x = spec.x;
+        ws.y = spec.y;
+        ws.phase = 0.0f;
+        ws.frequency = spec.frequency;
+        ws.amplitude = spec.amplitude;
+        ws.currentStrength = 0.0f;
+        ws.targetStrength = spec.targetStrength;
+        ws.speed = spec.speed;
+        ws.decay = spec.decay;
+        ws.active = true;
+        ws.startFrame = startFrame;
+        ws.endFrame = (spec.duration > 0) ? (startFrame + spec.duration) : -1;
+        ws.rampUpFrames = spec.rampUpFrames;
+        ws.rampDownFrames = spec.rampDownFrames;
+
+        sources_.push_back(ws);
+    }
     
     void spawnRandomSource() {
+        // If we've been given a target total frame count and warmup recordings,
+        // replay the recorded spawns mapped to the end of the video so the
+        // sequence matches the warmup (for seamless looping).
+        if (targetTotalFrames_ > 0 && warmupFrames_ > 0) {
+            int replayStart = targetTotalFrames_ - warmupFrames_;
+            if (frameCount_ >= replayStart && frameCount_ < targetTotalFrames_) {
+                int idx = frameCount_ - replayStart;
+                if (idx >= 0 && idx < (int)warmupSpawns_.size()) {
+                    for (const auto& spec : warmupSpawns_[idx]) {
+                        createSourceFromSpec(spec, frameCount_);
+                    }
+                }
+                return;
+            }
+        }
+
         std::uniform_real_distribution<float> prob(0.0f, 1.0f);
         std::uniform_real_distribution<float> distLife(minLifetime_, maxLifetime_);
         
@@ -182,7 +239,38 @@ private:
             }
             
             int lifetime = (int)(distLife(rng_) * fps_);
-            createSource(x, y, frameCount_, lifetime);
+
+            // Build the same random parameter set that createSource() would
+            std::uniform_real_distribution<float> distFreq(baseFrequency_ * 0.5f, baseFrequency_ * 2.0f);
+            std::normal_distribution<float> distSpeed(baseSpeed_, baseSpeed_ * 0.15f);
+            std::uniform_real_distribution<float> distDecay(baseDecay_ * 0.8f, baseDecay_ * 1.2f);
+            std::uniform_real_distribution<float> distStrength(0.5f, 1.0f);
+            float amplitudeMultiplier = waveDirection_.empty() ? 1.0f : 2.0f;
+            std::normal_distribution<float> distAmp(baseAmplitude_ * amplitudeMultiplier, baseAmplitude_ * amplitudeMultiplier * 0.3f);
+
+            SpawnSpec spec;
+            spec.x = x;
+            spec.y = y;
+            spec.duration = lifetime;
+            spec.frequency = std::max(0.01f, distFreq(rng_));
+            spec.amplitude = std::max(0.01f, distAmp(rng_));
+            spec.targetStrength = distStrength(rng_);
+            spec.speed = std::max(10.0f, distSpeed(rng_));
+            spec.decay = distDecay(rng_);
+            // Ramp times as fraction of lifetime
+            if (lifetime > 0) {
+                spec.rampUpFrames = (int)(lifetime * 0.2f);
+                spec.rampDownFrames = (int)(lifetime * 0.25f);
+            } else {
+                spec.rampUpFrames = fps_ * 2;
+                spec.rampDownFrames = fps_ * 2;
+            }
+
+            // Create and (if in warmup) record the parameters
+            createSourceFromSpec(spec, frameCount_);
+            if (warmupFrames_ > 0 && frameCount_ < warmupFrames_) {
+                warmupSpawns_[frameCount_].push_back(spec);
+            }
         }
     }
     
@@ -245,8 +333,8 @@ public:
           lightAngle_(-M_PI / 4.0f), lightIntensity_(0.3f), waveInterference_(1.0f),
                     displacementScale_(10.0f), useDisplacement_(true), waveDirection_(""),
           sourceSpawnProb_(0.02f), offscreenProb_(0.3f),
-          minLifetime_(5.0f), maxLifetime_(30.0f),
-                    rng_(std::random_device{}()), frameCount_(0), warmupSeconds_(60.0f) {}
+                    minLifetime_(2.0f), maxLifetime_(8.0f),
+                    rng_(std::random_device{}()), frameCount_(0), warmupSeconds_(0.0f), warmupFrames_(0), targetTotalFrames_(-1) {}
     
     std::string getName() const override {
         return "waves";
@@ -342,17 +430,54 @@ public:
         fps_ = fps;
         frameCount_ = 0;
         
-        // Create initial wave sources
+        // Prepare warmup recording if requested (allocate before initial sources)
+        if (warmupSeconds_ > 0.0f) {
+            warmupFrames_ = (int)std::round(warmupSeconds_ * fps_);
+            if (warmupFrames_ > 0) warmupSpawns_.clear(), warmupSpawns_.resize(warmupFrames_);
+        } else {
+            warmupFrames_ = 0;
+            warmupSpawns_.clear();
+        }
+
+        // Create initial wave sources (record as spawns at frame 0 so they replay at the end)
         std::uniform_real_distribution<float> distX(0.0f, width);
         std::uniform_real_distribution<float> distY(0.0f, height);
         std::uniform_real_distribution<float> distLife(minLifetime_, maxLifetime_);
-        
+
         sources_.clear();
         for (int i = 0; i < numSources_; i++) {
             float x = distX(rng_);
             float y = distY(rng_);
-            int lifetime = (int)(distLife(rng_) * fps);
-            createSource(x, y, 0, lifetime);
+            int lifetime = (int)(distLife(rng_) * fps_);
+
+            // Create SpawnSpec for initial source to ensure it's recorded/replayed
+            SpawnSpec spec;
+            spec.x = x;
+            spec.y = y;
+            spec.duration = lifetime;
+            // generate parameters using same distributions as createSource()
+            std::uniform_real_distribution<float> distFreq(baseFrequency_ * 0.5f, baseFrequency_ * 2.0f);
+            std::normal_distribution<float> distSpeed(baseSpeed_, baseSpeed_ * 0.15f);
+            std::uniform_real_distribution<float> distDecay(baseDecay_ * 0.8f, baseDecay_ * 1.2f);
+            std::uniform_real_distribution<float> distStrength(0.5f, 1.0f);
+            float amplitudeMultiplier = waveDirection_.empty() ? 1.0f : 2.0f;
+            std::normal_distribution<float> distAmp(baseAmplitude_ * amplitudeMultiplier, baseAmplitude_ * amplitudeMultiplier * 0.3f);
+
+            spec.frequency = std::max(0.01f, distFreq(rng_));
+            spec.amplitude = std::max(0.01f, distAmp(rng_));
+            spec.targetStrength = distStrength(rng_);
+            spec.speed = std::max(10.0f, distSpeed(rng_));
+            spec.decay = distDecay(rng_);
+            if (lifetime > 0) {
+                spec.rampUpFrames = (int)(lifetime * 0.2f);
+                spec.rampDownFrames = (int)(lifetime * 0.25f);
+            } else {
+                spec.rampUpFrames = fps_ * 2;
+                spec.rampDownFrames = fps_ * 2;
+            }
+
+            createSourceFromSpec(spec, 0);
+            if (warmupFrames_ > 0) warmupSpawns_[0].push_back(spec);
         }
         
         std::cout << "Wave effect initialized with " << numSources_ << " initial sources\n";
@@ -364,19 +489,34 @@ public:
             std::cout << "Light angle: " << (lightAngle_ * 180.0f / M_PI) << " degrees\n";
         }
         // Optional warmup: pre-simulate the system for a number of seconds to stabilize
-        if (warmupSeconds_ > 0.0f) {
-            int warmupFrames = (int)std::round(warmupSeconds_ * fps_);
-            std::cout << "Warming up simulation for " << warmupSeconds_ << "s (" << warmupFrames << " frames)";
+        if (warmupSeconds_ > 0.0f && warmupFrames_ > 0) {
+            std::cout << "Warming up simulation for " << warmupSeconds_ << "s (" << warmupFrames_ << " frames)";
             std::cout << "...\n";
 
-            for (int i = 0; i < warmupFrames; ++i) {
+            for (int i = 0; i < warmupFrames_; ++i) {
                 update();
             }
 
-            std::cout << "Warmup complete. Current frame count: " << frameCount_ << "\n";
+            // After warmup, shift source start/end frames backwards so we can reset
+            // the logical output frame counter to zero while preserving ages.
+            for (auto& ws : sources_) {
+                ws.startFrame -= warmupFrames_;
+                if (ws.endFrame > 0) ws.endFrame -= warmupFrames_;
+            }
+
+            // Reset logical frame count so generation starts at frame 0
+            frameCount_ = 0;
+
+            std::cout << "Warmup complete. Resetting output frame count to 0.\n";
         }
         
         return true;
+    }
+
+    // Inform the effect how many total frames the output will contain. This
+    // lets the effect align behavior (e.g. replaying warmup spawns at the end).
+    void setTotalFrames(int totalFrames) override {
+        targetTotalFrames_ = totalFrames;
     }
     
     // Bilinear interpolation for smooth sampling

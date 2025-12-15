@@ -252,6 +252,10 @@ bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outpu
     }
     // If probing failed we set totalFrames to INT_MAX to indicate "run until input ends"
     bool autoDetectDuration = (totalFrames == INT_MAX);
+    // Inform effect about total frame count when known (needed for warmup replay)
+    if (totalFrames != INT_MAX) {
+        effect->setTotalFrames(totalFrames);
+    }
     
     int frameCount = 0;
     

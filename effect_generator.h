@@ -53,6 +53,12 @@ public:
         (void)frame; (void)frameIndex; (void)totalFrames;
         dropFrame = false;
     }
+
+    // Optional hook: informs the effect what the total frame count will be
+    // (useful for effects that need to align behavior to the overall length).
+    virtual void setTotalFrames(int /*totalFrames*/) {
+        // Default: do nothing
+    }
 };
 
 // Effect factory
