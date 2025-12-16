@@ -13,7 +13,8 @@ void printUsage(const char* prog) {
     std::cout << "  --help                    Show this help\n";
     std::cout << "  --list-effects            List all available effects\n";
     std::cout << "  --effect <name>           Select effect to use (required)\n";
-    std::cout << "  --help-<effectname>       Show help for specific effect\n\n";
+    std::cout << "  --help-<effectname>       Show help for specific effect\n";
+    std::cout << "  --version                 Show program version\n\n";
     std::cout << "Video Options:\n";
     std::cout << "  --width <int>             Video width (default: 1920)\n";
     std::cout << "  --height <int>            Video height (default: 1080)\n";
@@ -61,6 +62,9 @@ int main(int argc, char** argv) {
         std::string arg = argv[i];
         if (arg == "--help") {
             printUsage(argv[0]);
+            return 0;
+        } else if (arg == "--version") {
+            std::cout << "Effect Generator: version " << getEffectGeneratorVersion() << "\n";
             return 0;
         } else if (arg == "--list-effects") {
             listEffects();

@@ -72,6 +72,12 @@ Or permanently in Windows:
 effectgenerator --list-effects
 ```
 
+### Show Version
+
+```bash
+effectgenerator --version
+```
+
 ### Get Help for Specific Effect
 
 ```bash

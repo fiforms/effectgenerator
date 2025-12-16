@@ -217,7 +217,7 @@ bool VideoGenerator::startFFmpegOutput(const char* filename) {
             // Default: H.264 with configurable CRF
             snprintf(cmd, sizeof(cmd),
                     "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
-                    "-c:v libx264 -preset medium -crf %d -pix_fmt yuv420p \"%s\"",
+                    "-c:v libx264 -preset medium -crf %d -pix_fmt yuv420p -movflags faststart \"%s\"",
                     ffmpegPath_.c_str(), width_, height_, fps_, crf_, filename);
         }
     }
