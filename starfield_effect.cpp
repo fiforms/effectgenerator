@@ -148,36 +148,34 @@ private:
         }
 
         // Helper: draw a small disk centered at (fx,fy) with given radius and alpha
-        // Use a cubic smoothstep falloff for smoother anti-aliasing without expensive exp()
-        auto drawDisk = [&](float fx, float fy, float radius, float alpha) {
-            if (alpha <= 0.001f || radius <= 0.25f) return;
-            int rI = (int)std::ceil(radius + 0.5f);
+        // Use a Gaussian-like falloff for smoother anti-aliasing and slightly
+        // increase sampling footprint to cover soft tails. Accept explicit color.
+        auto drawDisk = [&](float fx, float fy, float radius, float alpha, float dR, float dG, float dB) {
+            if (alpha <= 0.001f || radius <= 0.12f) return;
+            int rI = (int)std::ceil(radius * 1.8f + 1.0f);
             int minX = std::max(0, (int)std::floor(fx - rI));
             int maxX = std::min(width_ - 1, (int)std::ceil(fx + rI));
             int minY = std::max(0, (int)std::floor(fy - rI));
             int maxY = std::min(height_ - 1, (int)std::ceil(fy + rI));
             float rr = std::max(0.0001f, radius);
-            float invRR = 1.0f / rr;
+            // precompute Gaussian factor scale (controls falloff sharpness)
+            float invSigma2 = 1.0f / (rr * rr * 0.9f); // slightly wider than radius
             for (int yy = minY; yy <= maxY; ++yy) {
                 for (int xx = minX; xx <= maxX; ++xx) {
                     float dx = (xx + 0.5f) - fx;
                     float dy = (yy + 0.5f) - fy;
-                    float dnorm = (dx*dx + dy*dy) * (invRR * invRR); // squared normalized distance
-                    if (dnorm > 1.0f) continue;
-                    // normalized distance in [0,1]
-                    float d = std::sqrt(dnorm);
-                    // cubic smoothstep: s = d*d*(3-2*d)
-                    float s = d * d * (3.0f - 2.0f * d);
-                    float a = 1.0f - s; // smooth falloff from 1->0
-                    a = std::clamp(a * alpha, 0.0f, 1.0f);
+                    float dist2 = dx*dx + dy*dy;
+                    // Gaussian-like weight (fast, smooth). Values drop quickly outside radius.
+                    float w = std::exp(-dist2 * invSigma2);
+                    float a = w * alpha;
                     if (a <= 0.003f) continue;
                     int idx = (yy * width_ + xx) * 3;
                     float curR = frame[idx + 0] / 255.0f;
                     float curG = frame[idx + 1] / 255.0f;
                     float curB = frame[idx + 2] / 255.0f;
-                    frame[idx + 0] = (uint8_t)(255 * std::min(1.0f, curR + a * colR));
-                    frame[idx + 1] = (uint8_t)(255 * std::min(1.0f, curG + a * colG));
-                    frame[idx + 2] = (uint8_t)(255 * std::min(1.0f, curB + a * colB));
+                    frame[idx + 0] = (uint8_t)(255 * std::min(1.0f, curR + a * dR));
+                    frame[idx + 1] = (uint8_t)(255 * std::min(1.0f, curG + a * dG));
+                    frame[idx + 2] = (uint8_t)(255 * std::min(1.0f, curB + a * dB));
                 }
             }
         };
@@ -185,25 +183,31 @@ private:
         // For each axis, step along the line and place small disks
         for (float a : angles) {
             float ca = std::cos(a), sa = std::sin(a);
-            // Choose sampling step size dependent on brightness so bright stars get denser sampling
-            float stepSize = std::clamp(0.6f - opacity * 0.35f, 0.25f, 1.0f);
+            // Choose sampling step size: denser sampling for brighter stars and
+            // for thinner base widths to avoid visual gaps (reduces aliasing).
+            float stepSize = std::clamp(0.28f - opacity * 0.18f, 0.12f, 0.6f);
             int steps = (int)std::max(1.0f, std::floor(effectiveLen / stepSize));
             float step = (steps > 0) ? (effectiveLen / steps) : effectiveLen;
             // sample from -len to +len to create a line through the star (subpixel stepping)
+            // Always draw a bright white core sample so the center remains the brightest
+            drawDisk(cx, cy, baseLineWidth * 0.9f, std::min(1.0f, opacity) * 1.6f, 1.0f, 1.0f, 1.0f);
+
             for (float s = -effectiveLen; s <= effectiveLen + 0.001f; s += step) {
                 float sAbs = std::fabs(s);
                 if (sAbs > effectiveLen) continue;
-                // taper factor along the line (1 at center, 0 at ends)
-                float along = 1.0f - (sAbs / effectiveLen);
-                if (along <= 0.01f) continue;
-                // local width and alpha (slightly expanded width for coverage)
-                float localWidth = baseLineWidth * along * 1.15f;
-                if (localWidth < 0.35f) continue;
-                float localAlpha = opacity * along * 0.95f;
+                float distFrac = sAbs / effectiveLen; // 0..1
+                // Exponential taper along the ray to make it star-like (not sword-like)
+                float alphaFall = std::exp(-4.0f * distFrac); // controls how fast brightness drops
+                float widthFall = std::exp(-2.5f * distFrac);
+                float localWidth = baseLineWidth * widthFall * 0.9f;
+                if (localWidth < 0.12f) continue; // skip extremely thin samples
+
+                // dim the rays overall so only the core is bright white
+                float localAlpha = opacity * 0.9f * alphaFall * 0.45f;
 
                 float px = cx + ca * s;
                 float py = cy + sa * s;
-                drawDisk(px, py, localWidth, localAlpha);
+                drawDisk(px, py, localWidth, localAlpha, colR, colG, colB);
             }
         }
     }
@@ -285,11 +289,12 @@ public:
             if (s.shape == 0) {
                 drawCircle(frame, (int)std::round(s.x), (int)std::round(s.y), size, brightness, s.r, s.g, s.b);
             } else {
-                // draw a small core plus lines
-                drawCircle(frame, (int)std::round(s.x), (int)std::round(s.y), size * 0.6f, brightness * 1.1f, s.r, s.g, s.b);
-                float baseLineWidth = std::max(0.5f, size * 0.35f);
+                // draw a bright white core and thinner, dimmer rays
+                drawCircle(frame, (int)std::round(s.x), (int)std::round(s.y), size * 0.4f, brightness * 1.6f, 1.0f, 1.0f, 1.0f);
+                float baseLineWidth = std::max(0.45f, size * 0.32f); // thinner rays
                 float lineLen = std::min(maxLen, 120.0f + dist * 0.8f);
-                drawStarLines(frame, (int)std::round(s.x), (int)std::round(s.y), baseLineWidth, lineLen, brightness * 0.9f, s.r, s.g, s.b, s.shape);
+                // pass dimmer color for rays (only core is white)
+                drawStarLines(frame, (int)std::round(s.x), (int)std::round(s.y), baseLineWidth, lineLen, brightness * 0.6f, s.r * 0.45f, s.g * 0.45f, s.b * 0.45f, s.shape);
             }
 
         }
@@ -315,7 +320,7 @@ public:
             // speed scales up with distance: slow near center, accelerate toward edges
             float norm = std::clamp(dist / maxLen, 0.0f, 1.0f);
             // non-linear scaling for a stronger acceleration near edges
-            float speedScale = 1.0f + 6.0f * (norm * norm);
+            float speedScale = 1.0f + 10.0f * (norm * norm);
             float targetSpeed = speed_ * speedScale;
 
             // apply per-star jitter so motion isn't uniform
