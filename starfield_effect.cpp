@@ -33,11 +33,27 @@ private:
     std::mt19937 rng_;
 
     void respawn(Star &s) {
-        // Spawn at a random position across the screen (small when spawned)
-        std::uniform_real_distribution<float> posX(0.0f, (float)width_);
-        std::uniform_real_distribution<float> posY(0.0f, (float)height_);
-        s.x = posX(rng_);
-        s.y = posY(rng_);
+        // Spawn at a random position. Slightly prefer positions closer to the center
+        // by sampling from a 2D normal (centered) most of the time, but keep
+        // some uniform samples so stars can still appear near edges occasionally.
+        std::uniform_real_distribution<float> mixDist(0.0f, 1.0f);
+        float mix = mixDist(rng_);
+        // ~65% centered, ~35% uniform (tunable)
+        if (mix < 0.65f) {
+            float sd = std::min(width_, height_) * 0.18f; // standard deviation for center bias
+            std::normal_distribution<float> ndx(centerX_, sd);
+            std::normal_distribution<float> ndy(centerY_, sd);
+            s.x = ndx(rng_);
+            s.y = ndy(rng_);
+            // clamp to frame bounds
+            s.x = std::clamp(s.x, 0.0f, (float)width_);
+            s.y = std::clamp(s.y, 0.0f, (float)height_);
+        } else {
+            std::uniform_real_distribution<float> posX(0.0f, (float)width_);
+            std::uniform_real_distribution<float> posY(0.0f, (float)height_);
+            s.x = posX(rng_);
+            s.y = posY(rng_);
+        }
 
         // Direction is away from center; if too close to center, pick a random direction
         float dx = s.x - centerX_;
@@ -66,7 +82,7 @@ private:
         s.size = s.baseSize;
 
         // start dim; will brighten as distance grows
-        std::uniform_real_distribution<float> brightDist(0.08f, 0.35f);
+        std::uniform_real_distribution<float> brightDist(0.04f, 0.15f);
         s.brightness = brightDist(rng_);
 
         // subtle color variation (slightly bluish / white)
@@ -113,55 +129,81 @@ private:
     }
 
     void drawStarLines(std::vector<uint8_t>& frame, int cx, int cy, float baseLineWidth, float maxLen, float opacity, float colR, float colG, float colB, int lines) {
-        // Limit drawing area to a small neighborhood to keep performance reasonable
+        // Optimized star-line rasterization:
+        // - For each axis (2 or 3 axes producing 4/6 rays) step along the line and draw small disks
+        // - Disk radius and alpha taper with distance from the center, and overall line length scales with opacity (brightness)
+        const float PI = 3.14159265f;
         float drawLen = std::min(maxLen, 220.0f + baseLineWidth * 10.0f);
-        float bbox = drawLen + 3.0f + baseLineWidth;
-        int minX = std::max(0, (int)std::floor(cx - bbox));
-        int maxX = std::min(width_ - 1, (int)std::ceil(cx + bbox));
-        int minY = std::max(0, (int)std::floor(cy - bbox));
-        int maxY = std::min(height_ - 1, (int)std::ceil(cy + bbox));
+        // shorten length for dimmer stars so lines are short when star is dim
+        float effectiveLen = std::max(2.0f, drawLen * std::clamp(opacity, 0.0f, 1.0f));
 
         std::vector<float> angles;
         if (lines == 4) {
-            angles = {0.0f, 3.14159265f / 2.0f}; // horizontal & vertical
+            angles = {0.0f, PI / 2.0f}; // horizontal & vertical
         } else if (lines == 6) {
-            angles = {0.0f, 3.14159265f / 4.0f, -3.14159265f / 4.0f}; // horizontal + two diagonals (3 lines -> 6 rays)
+            // Use 60-degree spacing so the 6-point star is even
+            angles = {0.0f, PI / 3.0f, 2.0f * PI / 3.0f}; // three axes (both directions produce 6 rays)
         } else {
             return;
         }
 
-        for (int y = minY; y <= maxY; ++y) {
-            for (int x = minX; x <= maxX; ++x) {
-                float dx = (x + 0.5f) - cx;
-                float dy = (y + 0.5f) - cy;
-                float pixelAdd = 0.0f;
-                for (float a : angles) {
-                    float ca = std::cos(a), sa = std::sin(a);
-                    // projection onto line (signed distance along), and perpendicular distance
-                    float s = dx * ca + dy * sa;
-                    float p = -dx * sa + dy * ca;
-                    float sAbs = std::fabs(s);
-                    if (sAbs > drawLen) continue;
-                    // width tapers with distance along the line
-                    float w = baseLineWidth * (1.0f - (sAbs / drawLen));
-                    if (w <= 0.01f) continue;
-                    // perpendicular falloff (gaussian-like)
-                    float per = std::exp(- (p * p) / (2.0f * w * w));
-                    // along-line fade
-                    float along = 1.0f - (sAbs / drawLen);
-                    float contrib = per * along;
-                    pixelAdd += contrib;
+        // Helper: draw a small disk centered at (fx,fy) with given radius and alpha
+        // Use a cubic smoothstep falloff for smoother anti-aliasing without expensive exp()
+        auto drawDisk = [&](float fx, float fy, float radius, float alpha) {
+            if (alpha <= 0.001f || radius <= 0.25f) return;
+            int rI = (int)std::ceil(radius + 0.5f);
+            int minX = std::max(0, (int)std::floor(fx - rI));
+            int maxX = std::min(width_ - 1, (int)std::ceil(fx + rI));
+            int minY = std::max(0, (int)std::floor(fy - rI));
+            int maxY = std::min(height_ - 1, (int)std::ceil(fy + rI));
+            float rr = std::max(0.0001f, radius);
+            float invRR = 1.0f / rr;
+            for (int yy = minY; yy <= maxY; ++yy) {
+                for (int xx = minX; xx <= maxX; ++xx) {
+                    float dx = (xx + 0.5f) - fx;
+                    float dy = (yy + 0.5f) - fy;
+                    float dnorm = (dx*dx + dy*dy) * (invRR * invRR); // squared normalized distance
+                    if (dnorm > 1.0f) continue;
+                    // normalized distance in [0,1]
+                    float d = std::sqrt(dnorm);
+                    // cubic smoothstep: s = d*d*(3-2*d)
+                    float s = d * d * (3.0f - 2.0f * d);
+                    float a = 1.0f - s; // smooth falloff from 1->0
+                    a = std::clamp(a * alpha, 0.0f, 1.0f);
+                    if (a <= 0.003f) continue;
+                    int idx = (yy * width_ + xx) * 3;
+                    float curR = frame[idx + 0] / 255.0f;
+                    float curG = frame[idx + 1] / 255.0f;
+                    float curB = frame[idx + 2] / 255.0f;
+                    frame[idx + 0] = (uint8_t)(255 * std::min(1.0f, curR + a * colR));
+                    frame[idx + 1] = (uint8_t)(255 * std::min(1.0f, curG + a * colG));
+                    frame[idx + 2] = (uint8_t)(255 * std::min(1.0f, curB + a * colB));
                 }
-                if (pixelAdd <= 1e-5f) continue;
-                // combine with opacity and color
-                float alpha = std::clamp(pixelAdd * opacity, 0.0f, 1.0f);
-                int idx = (y * width_ + x) * 3;
-                float curR = frame[idx + 0] / 255.0f;
-                float curG = frame[idx + 1] / 255.0f;
-                float curB = frame[idx + 2] / 255.0f;
-                frame[idx + 0] = (uint8_t)(255 * std::min(1.0f, curR + alpha * colR));
-                frame[idx + 1] = (uint8_t)(255 * std::min(1.0f, curG + alpha * colG));
-                frame[idx + 2] = (uint8_t)(255 * std::min(1.0f, curB + alpha * colB));
+            }
+        };
+
+        // For each axis, step along the line and place small disks
+        for (float a : angles) {
+            float ca = std::cos(a), sa = std::sin(a);
+            // Choose sampling step size dependent on brightness so bright stars get denser sampling
+            float stepSize = std::clamp(0.6f - opacity * 0.35f, 0.25f, 1.0f);
+            int steps = (int)std::max(1.0f, std::floor(effectiveLen / stepSize));
+            float step = (steps > 0) ? (effectiveLen / steps) : effectiveLen;
+            // sample from -len to +len to create a line through the star (subpixel stepping)
+            for (float s = -effectiveLen; s <= effectiveLen + 0.001f; s += step) {
+                float sAbs = std::fabs(s);
+                if (sAbs > effectiveLen) continue;
+                // taper factor along the line (1 at center, 0 at ends)
+                float along = 1.0f - (sAbs / effectiveLen);
+                if (along <= 0.01f) continue;
+                // local width and alpha (slightly expanded width for coverage)
+                float localWidth = baseLineWidth * along * 1.15f;
+                if (localWidth < 0.35f) continue;
+                float localAlpha = opacity * along * 0.95f;
+
+                float px = cx + ca * s;
+                float py = cy + sa * s;
+                drawDisk(px, py, localWidth, localAlpha);
             }
         }
     }
