@@ -214,21 +214,21 @@ private:
 
 public:
     StarfieldEffect()
-        : numStars_(200), speed_(8.0f), speedJitter_(0.35f), baseSize_(1.0f), maxSize_(8.0f), brightnessMax_(1.0f), centerX_(0.0f), centerY_(0.0f), shapeMode_(0), rng_(std::random_device{}()) {}
+        : numStars_(50), speed_(3.0f), speedJitter_(0.35f), baseSize_(0.2f), maxSize_(8.0f), brightnessMax_(1.0f), centerX_(0.0f), centerY_(0.0f), shapeMode_(6), rng_(std::random_device{}()) {}
 
     std::string getName() const override { return "starfield"; }
     std::string getDescription() const override { return "Starfield: simulate flying through space from a center point"; }
 
     void printHelp() const override {
         std::cout << "Starfield Effect Options:\n"
-                  << "  --stars <int>          Number of stars (default: 200)\n"
-                  << "  --speed <float>        Base speed in pixels/frame (default: 8.0)\n"
+                  << "  --stars <int>          Number of stars (default: 50)\n"
+                  << "  --speed <float>        Base speed in pixels/frame (default: 3.0)\n"
                   << "  --speed-jitter <f>     Fractional jitter on speed (default: 0.35)\n"
-                  << "  --size <float>         Base star size in pixels (default: 1.0)\n"
-                  << "  --max-size <float>     Max visual size as star moves outward (default: 8.0)\n"
+                  << "  --size <float>         Base star size in pixels (default: 0.2)\n"
+                  << "  --max-size <float>     Max visual size as star moves outward (default: 16.0)\n"
                   << "  --center-x <float>     Center X in pixels (default: center of frame)\n"
                   << "  --center-y <float>     Center Y in pixels (default: center of frame)\n"
-                  << "  --shape <round|4|6>    Star shape: round, 4 (cross), or 6 (three-line Webb-like)\n";
+                  << "  --shape <round|4|6>    Star shape: round, 4 (cross), or 6 (three-line Webb-like, default)\n";
     }
 
     bool parseArgs(int argc, char** argv, int& i) override {
@@ -287,10 +287,12 @@ public:
             brightness *= fadeMultiplier;
 
             if (s.shape == 0) {
-                drawCircle(frame, (int)std::round(s.x), (int)std::round(s.y), size, brightness, s.r, s.g, s.b);
+                // make the central disk a bit smaller for round stars
+                drawCircle(frame, (int)std::round(s.x), (int)std::round(s.y), size * 0.6f, brightness, s.r, s.g, s.b);
             } else {
                 // draw a bright white core and thinner, dimmer rays
-                drawCircle(frame, (int)std::round(s.x), (int)std::round(s.y), size * 0.4f, brightness * 1.6f, 1.0f, 1.0f, 1.0f);
+                // shrink the core disk for shaped stars as well
+                drawCircle(frame, (int)std::round(s.x), (int)std::round(s.y), size * 0.28f, brightness * 1.6f, 1.0f, 1.0f, 1.0f);
                 float baseLineWidth = std::max(0.45f, size * 0.32f); // thinner rays
                 float lineLen = std::min(maxLen, 120.0f + dist * 0.8f);
                 // pass dimmer color for rays (only core is white)
@@ -319,8 +321,9 @@ public:
 
             // speed scales up with distance: slow near center, accelerate toward edges
             float norm = std::clamp(dist / maxLen, 0.0f, 1.0f);
-            // non-linear scaling for a stronger acceleration near edges
-            float speedScale = 1.0f + 10.0f * (norm * norm);
+            // stronger non-linear scaling so stars accelerate more aggressively near edges
+            // use a cubic curve and larger multiplier for a more pronounced effect
+            float speedScale = 1.0f + 100.0f * (norm * norm * norm * norm);
             float targetSpeed = speed_ * speedScale;
 
             // apply per-star jitter so motion isn't uniform
