@@ -330,12 +330,26 @@ public:
             float tSize = time * f.sizeFreq * TWO_PI + f.sizePhase;
             float rx, ry;
             if (f.spinEnabled) {
-                // map sin(t) in [-1,1] -> u in [0,1]
-                float u = 0.5f * (1.0f + std::sin(tSize));
-                // aspect oscillates between 1.0 and spinMinAspect_
-                float aspect = 1.0f - u * (1.0f - spinMinAspect_);
+                // Use a signed waveform that crosses negative territory to simulate
+                // a flip/rotation. Start with sin(t) in [-1,1], apply a signed
+                // square-root to make the waveform move *faster* through zero
+                // (so the narrow state is brief), then drive aspect magnitude
+                // from `spinMinAspect_`..1.0. When the signed value is negative
+                // we swap major/minor to visually flip the orientation.
+                float s = std::sin(tSize);
+                // signed sqrt: preserve sign, amplify small magnitudes away from 0
+                float v = (s >= 0.0f) ? std::sqrt(s) : -std::sqrt(-s);
+                float mag = std::abs(v);
+                // magnitude maps from spinMinAspect_ (narrow) to 1.0 (full)
+                float absAspect = spinMinAspect_ + (1.0f - spinMinAspect_) * mag;
                 float major = f.radius;
-                float minor = std::max(0.5f, f.radius * aspect);
+                // allow the minor axis to get very small (so flakes can disappear briefly)
+                float minor = std::max(0.05f, f.radius * absAspect);
+                // Keep axis orientation constant regardless of the signed value.
+                // We still allow the value to go negative (so the waveform crosses
+                // zero quickly), but do not swap major/minor — this preserves the
+                // chosen spin axis and prevents flipping between horizontal and
+                // vertical shapes.
                 if (f.spinHorizontal) {
                     rx = major;
                     ry = minor;
