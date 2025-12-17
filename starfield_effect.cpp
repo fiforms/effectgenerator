@@ -323,7 +323,7 @@ public:
             float norm = std::clamp(dist / maxLen, 0.0f, 1.0f);
             // stronger non-linear scaling so stars accelerate more aggressively near edges
             // use a cubic curve and larger multiplier for a more pronounced effect
-            float speedScale = 1.0f + 100.0f * (norm * norm * norm * norm);
+            float speedScale = 0.1f + 100.0f * (norm * norm * norm * norm);
             float targetSpeed = speed_ * speedScale;
 
             // apply per-star jitter so motion isn't uniform
