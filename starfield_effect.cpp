@@ -38,8 +38,8 @@ private:
         // some uniform samples so stars can still appear near edges occasionally.
         std::uniform_real_distribution<float> mixDist(0.0f, 1.0f);
         float mix = mixDist(rng_);
-        // ~65% centered, ~35% uniform (tunable)
-        if (mix < 0.65f) {
+        // ~55% centered, ~45% uniform (tunable)
+        if (mix < 0.55f) {
             float sd = std::min(width_, height_) * 0.18f; // standard deviation for center bias
             std::normal_distribution<float> ndx(centerX_, sd);
             std::normal_distribution<float> ndy(centerY_, sd);
@@ -214,7 +214,7 @@ private:
 
 public:
     StarfieldEffect()
-        : numStars_(50), speed_(3.0f), speedJitter_(0.35f), baseSize_(0.2f), maxSize_(8.0f), brightnessMax_(1.0f), centerX_(0.0f), centerY_(0.0f), shapeMode_(6), rng_(std::random_device{}()) {}
+        : numStars_(50), speed_(3.0f), speedJitter_(0.35f), baseSize_(0.2f), maxSize_(8.0f), brightnessMax_(1.0f), centerX_(-1000000.0f), centerY_(-1000000.0f), shapeMode_(6), rng_(std::random_device{}()) {}
 
     std::string getName() const override { return "starfield"; }
     std::string getDescription() const override { return "Starfield: simulate flying through space from a center point"; }
@@ -253,8 +253,8 @@ public:
 
     bool initialize(int width, int height, int fps) override {
         width_ = width; height_ = height; fps_ = fps;
-        if (centerX_ <= 0.0f) centerX_ = width_ * 0.5f;
-        if (centerY_ <= 0.0f) centerY_ = height_ * 0.5f;
+        if (centerX_ <= -999999.0f) centerX_ = width_ * 0.5f;
+        if (centerY_ <= -999999.0f) centerY_ = height_ * 0.5f;
 
         stars_.clear();
         stars_.reserve(numStars_);
@@ -293,8 +293,8 @@ public:
                 // draw a bright white core and thinner, dimmer rays
                 // shrink the core disk for shaped stars as well
                 drawCircle(frame, (int)std::round(s.x), (int)std::round(s.y), size * 0.28f, brightness * 1.6f, 1.0f, 1.0f, 1.0f);
-                float baseLineWidth = std::max(0.45f, size * 0.32f); // thinner rays
-                float lineLen = std::min(maxLen, 120.0f + dist * 0.8f);
+                float baseLineWidth = std::max(0.35f, size * 0.25f); // thinner rays
+                float lineLen = std::min(maxLen, 60.0f + dist * 0.9f);
                 // pass dimmer color for rays (only core is white)
                 drawStarLines(frame, (int)std::round(s.x), (int)std::round(s.y), baseLineWidth, lineLen, brightness * 0.6f, s.r * 0.45f, s.g * 0.45f, s.b * 0.45f, s.shape);
             }
@@ -323,7 +323,7 @@ public:
             float norm = std::clamp(dist / maxLen, 0.0f, 1.0f);
             // stronger non-linear scaling so stars accelerate more aggressively near edges
             // use a cubic curve and larger multiplier for a more pronounced effect
-            float speedScale = 0.1f + 100.0f * (norm * norm * norm * norm);
+            float speedScale = 0.15f + 100.0f * (norm * norm);
             float targetSpeed = speed_ * speedScale;
 
             // apply per-star jitter so motion isn't uniform
