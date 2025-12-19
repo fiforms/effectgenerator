@@ -7,7 +7,9 @@
 #include <cstdlib>
 
 void printUsage(const char* prog) {
-    std::cout << "Effect Generator - Video Effects Tool\n\n";
+    std::cout << "Effect Generator " << getEffectGeneratorVersion() << " - Video Effects Tool\n";
+    std::cout << "Find the latest version at https://github.com/fiforms/effectgenerator\n";
+    std::cout << "============================\n\n";
     std::cout << "Usage: " << prog << " --effect [effect] [options] --output [outputfile]\n\n";
     std::cout << "General Options:\n";
     std::cout << "  --help                    Show this help\n";
