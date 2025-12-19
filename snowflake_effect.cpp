@@ -228,7 +228,7 @@ public:
                   << "  --randomness <float>   Motion randomness (default: 1.0)\n"
                   << "  --softness <float>     Edge softness/blur (default: 2.0)\n"
                   << "  --brightness <float>   Max brightness 0.0-1.0 (default: 1.0)\n"
-                  << "  --brightness-speed <float>  Average speed of brightness pulsing (default: 1.0). Set to 0 to disable pulsing.\n"
+                  << "  --pulse <float>        Average speed of brightness pulsing (default: 1.0). Set to 0 to disable pulsing.\n"
                   << "  --hue <float>          Average hue 0.0-1.0 (default: 0.0 - only matters when saturation>0)\n"
                   << "  --saturation <float>   Saturation 0.0-1.0 (default: 0.0 = white)\n"
                   << "  --hue-range <float>    Hue range 0.0-1.0 (0 = same hue, 1 = full range)\n"
@@ -263,7 +263,7 @@ public:
         } else if (arg == "--brightness" && i + 1 < argc) {
             maxBrightness_ = std::atof(argv[++i]);
             return true;
-        } else if (arg == "--brightness-speed" && i + 1 < argc) {
+        } else if (arg == "--pulse" && i + 1 < argc) {
             brightnessSpeed_ = std::atof(argv[++i]);
             return true;
         } else if (arg == "--hue" && i + 1 < argc) {
@@ -358,8 +358,8 @@ public:
                     ry = major;
                 }
             } else {
-                rx = std::max(0.5f, f.radius * (1.0f + f.sizeAmpX * std::sin(tSize)));
-                ry = std::max(0.5f, f.radius * (1.0f + f.sizeAmpY * std::sin(tSize + 0.7f)));
+                rx = std::max(0.5f, f.radius * (1.0f + f.sizeAmpX));
+                ry = std::max(0.5f, f.radius * (1.0f + f.sizeAmpY));
             }
 
             drawEllipse(frame, (int)f.x, (int)f.y, rx, ry, opacity, fadeMultiplier, f.colorR, f.colorG, f.colorB);
