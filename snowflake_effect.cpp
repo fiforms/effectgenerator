@@ -13,6 +13,9 @@ struct Snowflake {
     float radius;
     float opacity;
     float baseVx, baseVy;
+    // lifetime tracking: time since spawn and timeout (seconds)
+    float timeAlive;
+    float timeoutSeconds;
     // Pulsing parameters
     float brightnessPhase;
     float brightnessFreq;
@@ -35,11 +38,14 @@ private:
     int width_, height_, fps_;
     int numFlakes_;
     float avgSize_, sizeVariance_;
+    float minSize_, maxSize_, sizeBias_;
     float avgMotionX_, avgMotionY_;
     float motionRandomness_;
     float softness_;
     float maxBrightness_;
     float brightnessSpeed_;
+    // how long (seconds) a flake fades out after timeout
+    float timeoutFadeDuration_;
     // color controls
     float avgHue_; // 0..1
     float saturation_; // 0..1
@@ -79,7 +85,13 @@ private:
         std::uniform_real_distribution<float> distX(0, width_);
         std::normal_distribution<float> distVx(avgMotionX_, motionRandomness_);
         std::normal_distribution<float> distVy(avgMotionY_, motionRandomness_);
-        std::normal_distribution<float> distSize(avgSize_, sizeVariance_);
+        // Use an exponential distribution for size so there are many more
+        // small flakes and fewer large ones (closer flakes). We offset by
+        // `minSize_` so the distribution produces values >= minSize_. The
+        // `sizeBias_` controls the rate: lambda = sizeBias_ / avgSize_. A
+        // larger `sizeBias_` makes the mean smaller (more tiny flakes).
+        float lambda = sizeBias_ / std::max(0.0001f, avgSize_);
+        std::exponential_distribution<float> distSizeExp(lambda);
         std::uniform_real_distribution<float> distOpacity(0.3f, maxBrightness_);
         std::uniform_real_distribution<float> distPhase(0.0f, 2.0f * 3.14159265f);
         std::uniform_real_distribution<float> distBrightFreq(0.2f, 1.2f);
@@ -87,11 +99,18 @@ private:
         std::uniform_real_distribution<float> distSizeFreq(0.1f, 0.8f);
         std::uniform_real_distribution<float> distSizeAmp(0.02f, 0.6f);
         
-        f.radius = std::max(1.0f, distSize(rng_));
+        float sampledSize = minSize_ + distSizeExp(rng_);
+        // clamp to configured bounds
+        float maxSize = std::max(minSize_, maxSize_);
+        f.radius = std::max(minSize_, std::min(sampledSize, maxSize));
         f.y = -(f.radius + softness_ + 2);
         f.x = distX(rng_);
         f.baseVx = distVx(rng_);
         f.baseVy = distVy(rng_);
+        // scale velocity exponentially with size so larger (closer) flakes move faster
+        const float sizeSpeedScale = std::exp((f.radius - avgSize_) * 0.30f);
+        f.baseVx *= sizeSpeedScale;
+        f.baseVy *= sizeSpeedScale;
         f.vx = f.baseVx;
         f.vy = f.baseVy;
         f.opacity = distOpacity(rng_);
@@ -147,6 +166,13 @@ private:
         f.colorR = r;
         f.colorG = g;
         f.colorB = b;
+        // lifetime tracking: reset time and compute timeout based on estimated time to cross screen
+        f.timeAlive = 0.0f;
+        // estimate time to cross frame vertically (avoid divide by zero)
+        float estVy = std::max(0.1f, std::abs(f.baseVy));
+        float estTimeToCross = (height_ > 0) ? (height_ / estVy) : 6.0f;
+        std::uniform_real_distribution<float> distTimeoutFactor(0.5f, 1.5f);
+        f.timeoutSeconds = estTimeToCross * distTimeoutFactor(rng_);
     }
     
     void drawEllipse(std::vector<uint8_t>& frame, int cx, int cy, float rx, float ry, float opacity, float fadeMultiplier, float colR, float colG, float colB) {
@@ -205,9 +231,9 @@ private:
     
 public:
     SnowflakeEffect()
-        : numFlakes_(150), avgSize_(3.0f), sizeVariance_(1.5f),
+        : numFlakes_(150), avgSize_(3.0f), sizeVariance_(1.5f), minSize_(0.5f), maxSize_(avgSize_ * 6.0f), sizeBias_(2.0f),
             avgMotionX_(0.5f), avgMotionY_(2.0f), motionRandomness_(1.0f),
-            softness_(2.0f), maxBrightness_(1.0f), brightnessSpeed_(1.0f), avgHue_(0.0f), saturation_(0.0f), hueRange_(0.0f), frameCount_(0), spin_(false), spinFraction_(0.35f), spinMinAspect_(0.1f), spinAxis_(0), rng_(std::random_device{}()) {}
+            softness_(2.0f), maxBrightness_(1.0f), brightnessSpeed_(1.0f), timeoutFadeDuration_(0.8f), avgHue_(0.0f), saturation_(0.0f), hueRange_(0.0f), frameCount_(0), spin_(true), spinFraction_(0.55f), spinMinAspect_(0.1f), spinAxis_(0), rng_(std::random_device{}()) {}
         
     
     std::string getName() const override {
@@ -232,8 +258,11 @@ public:
                   << "  --hue <float>          Average hue 0.0-1.0 (default: 0.0 - only matters when saturation>0)\n"
                   << "  --saturation <float>   Saturation 0.0-1.0 (default: 0.0 = white)\n"
                   << "  --hue-range <float>    Hue range 0.0-1.0 (0 = same hue, 1 = full range)\n"
-                  << "  --spin                 Enable spin-like aspect morphing (gives 3D spin illusion)\n"
-                  << "  --spin-axis <h|v|random>  Axis for spin: h=horizontal, v=vertical, random=per-flake random (default: random)\n";
+                  << "  --no-spin              Disable spin-like aspect morphing\n"
+                  << "  --spin-axis <h|v|random>  Axis for spin: h=horizontal, v=vertical, random=per-flake random (default: random)\n"
+                  << "  --min-size <float>     Minimum flake size (default: 0.5)\n"
+                  << "  --max-size <float>     Maximum flake size (default: avgSize*6)\n"
+                  << "  --size-bias <float>    Bias for exponential size distribution (>0). Larger => more small flakes (default: 2.0)\n";
     }
     
     bool parseArgs(int argc, char** argv, int& i) override {
@@ -275,14 +304,27 @@ public:
         } else if (arg == "--hue-range" && i + 1 < argc) {
             hueRange_ = std::atof(argv[++i]);
             return true;
-        } else if (arg == "--spin") {
-            spin_ = true;
+        } else if (arg == "--no-spin") {
+            spin_ = false;
             return true;
         } else if (arg == "--spin-axis" && i + 1 < argc) {
             std::string v = argv[++i];
             if (v == "h" || v == "horizontal") spinAxis_ = 1;
             else if (v == "v" || v == "vertical") spinAxis_ = 2;
             else spinAxis_ = 0;
+            return true;
+        }
+        else if (arg == "--min-size" && i + 1 < argc) {
+            minSize_ = std::atof(argv[++i]);
+            if (minSize_ < 0.01f) minSize_ = 0.01f;
+            return true;
+        } else if (arg == "--max-size" && i + 1 < argc) {
+            maxSize_ = std::atof(argv[++i]);
+            if (maxSize_ < minSize_) maxSize_ = minSize_;
+            return true;
+        } else if (arg == "--size-bias" && i + 1 < argc) {
+            sizeBias_ = std::atof(argv[++i]);
+            if (sizeBias_ <= 0.0f) sizeBias_ = 1.0f;
             return true;
         }
         
@@ -296,7 +338,6 @@ public:
         
         std::uniform_real_distribution<float> distX(0, width);
         std::uniform_real_distribution<float> distY(0, height);
-        std::normal_distribution<float> distSize(avgSize_, sizeVariance_);
         std::normal_distribution<float> distVx(avgMotionX_, motionRandomness_);
         std::normal_distribution<float> distVy(avgMotionY_, motionRandomness_);
         std::uniform_real_distribution<float> distOpacity(0.3f, maxBrightness_);
@@ -320,7 +361,7 @@ public:
         const float TWO_PI = 6.28318530718f;
         float time = (fps_ > 0) ? (frameCount_ / (float)fps_) : 0.0f;
 
-        for (const auto& f : flakes_) {
+        for (auto& f : flakes_) {
             // brightness pulse (per-flake random phase/frequency/amplitude)
             float tBright = time * f.brightnessFreq * TWO_PI + f.brightnessPhase;
             float brightFactor = 1.0f + f.brightnessAmp * std::sin(tBright);
@@ -362,7 +403,20 @@ public:
                 ry = std::max(0.5f, f.radius * (1.0f + f.sizeAmpY));
             }
 
-            drawEllipse(frame, (int)f.x, (int)f.y, rx, ry, opacity, fadeMultiplier, f.colorR, f.colorG, f.colorB);
+            // per-flake fade after timeout: if the flake has exceeded its timeout and
+            // hasn't yet left the screen, start fading it out over `timeoutFadeDuration_` seconds.
+            float perFlakeFade = 1.0f;
+            if (f.timeAlive >= f.timeoutSeconds && f.y <= height_ + f.radius + softness_) {
+                float fadeProgress = (f.timeAlive - f.timeoutSeconds) / std::max(0.0001f, timeoutFadeDuration_);
+                if (fadeProgress >= 1.0f) {
+                    // fully faded: respawn the flake instead of drawing
+                    resetFlake(f);
+                    continue;
+                }
+                perFlakeFade = 1.0f - fadeProgress;
+            }
+
+            drawEllipse(frame, (int)f.x, (int)f.y, rx, ry, opacity, fadeMultiplier * perFlakeFade, f.colorR, f.colorG, f.colorB);
         }
     }
     
@@ -376,8 +430,14 @@ public:
             
             f.x += f.vx;
             f.y += f.vy;
+            // advance per-flake lifetime (avoid divide by zero fps)
+            if (fps_ > 0) f.timeAlive += 1.0f / (float)fps_;
             
             if (f.y > height_ + f.radius + softness_) {
+                resetFlake(f);
+            }
+            // If a flake has exceeded its timeout plus fade duration, respawn it
+            if (f.timeAlive >= f.timeoutSeconds + timeoutFadeDuration_) {
                 resetFlake(f);
             }
             if (f.x < -(f.radius + softness_)) f.x = width_ + f.radius + softness_;
