@@ -205,19 +205,19 @@ bool VideoGenerator::startFFmpegOutput(const char* filename) {
             // AV1 via SVT-AV1 for .webm outputs (preset 7)
             snprintf(cmd, sizeof(cmd),
                     "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
-                    "-c:v libsvtav1 -preset 7 -crf %d -pix_fmt yuv420p \"%s\"",
+                    "-c:v libsvtav1 -preset 7 -crf %d -pix_fmt yuv420p \"%s\" -hide_banner -loglevel error",
                     ffmpegPath_.c_str(), width_, height_, fps_, crf_, filename);
         } else if (outExt == "mov") {
             // ProRes output for .mov (using prores_ks)
             snprintf(cmd, sizeof(cmd),
                     "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
-                    "-c:v prores_ks -profile:v 3 -qscale:v %d -pix_fmt yuv422p10le \"%s\"",
+                    "-c:v prores_ks -profile:v 3 -qscale:v %d -pix_fmt yuv422p10le \"%s\" -hide_banner -loglevel error",
                     ffmpegPath_.c_str(), width_, height_, fps_, crf_, filename);
         } else {
             // Default: H.264 with configurable CRF
             snprintf(cmd, sizeof(cmd),
                     "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
-                    "-c:v libx264 -preset medium -crf %d -pix_fmt yuv420p -movflags faststart \"%s\"",
+                    "-c:v libx264 -preset medium -crf %d -pix_fmt yuv420p -movflags faststart \"%s\" -hide_banner -loglevel error",
                     ffmpegPath_.c_str(), width_, height_, fps_, crf_, filename);
         }
     }

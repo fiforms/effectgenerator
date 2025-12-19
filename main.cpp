@@ -8,7 +8,7 @@
 
 void printUsage(const char* prog) {
     std::cout << "Effect Generator - Video Effects Tool\n\n";
-    std::cout << "Usage: " << prog << " [options]\n\n";
+    std::cout << "Usage: " << prog << " --effect [effect] [options] --output [outputfile]\n\n";
     std::cout << "General Options:\n";
     std::cout << "  --help                    Show this help\n";
     std::cout << "  --list-effects            List all available effects\n";
@@ -23,7 +23,9 @@ void printUsage(const char* prog) {
     std::cout << "  --fade <float>            Fade in/out duration in seconds (default: 0.0)\n";
     std::cout << "  --background-image <path> Background image (JPG/PNG)\n";
     std::cout << "  --background-video <path> Background video (MP4/MOV/etc)\n";
-    std::cout << "  --output <string>         Output filename (default: output.mp4)\n\n";
+    std::cout << "  --crf <int>               Output video quality (default: 23, lower is better)\n\n";
+    std::cout << "  --output <string>         Output filename (required)\n\n";
+    std::cout << "  --overwrite               Overwrite output file if it exists\n\n";
     std::cout << "Environment Variables:\n";
     std::cout << "  FFMPEG_PATH               Path to ffmpeg executable\n\n";
     std::cout << "Examples:\n";
@@ -89,7 +91,8 @@ int main(int argc, char** argv) {
     int width = 1920, height = 1080, fps = 30, duration = -1; // -1 means auto-detect
     int crf = 23;
     float fadeDuration = 0.0f;
-    std::string output = "output.mp4";
+    std::string output = "";
+    bool overwriteOutput = false;
     std::string backgroundImage;
     std::string backgroundVideo;
     std::string effectName;
@@ -114,6 +117,8 @@ int main(int argc, char** argv) {
             crf = std::atoi(argv[++i]);
         } else if (arg == "--output" && i + 1 < argc) {
             output = argv[++i];
+        } else if (arg == "--overwrite") {
+            overwriteOutput = true;
         } else if (arg == "--background-image" && i + 1 < argc) {
             backgroundImage = argv[++i];
         } else if (arg == "--background-video" && i + 1 < argc) {
@@ -133,6 +138,20 @@ int main(int argc, char** argv) {
             std::cerr << "Unknown or invalid argument: " << arg << "\n";
             return 1;
         }
+    }
+
+    if (output.empty()) {
+        std::cerr << "Error: Output filename is required. Use --output [filename]\n";
+        return 1;
+    }
+
+    // Check if output file exists
+    if (!overwriteOutput) {
+      if(FILE* file = std::fopen(output.c_str(), "rb")) {
+        std::fclose(file);
+        std::cerr << "Error: Output file '" << output << "' already exists. Please choose a different name.\n";
+        return 1;
+      }
     }
     
     if (!effect) {
