@@ -37,6 +37,7 @@ private:
     std::mt19937 rng_;
     int mode_; // 0=small,1=bethlehem,2=mixed
     float mixRatio_; // when mixed, fraction of small stars (0..1)
+    float groundThreshold_ = 0.0f; // portion of ground to avoid placing stars on
 
     void drawEllipse(std::vector<uint8_t>& frame, int cx, int cy, float rx, float ry, float opacity, float fadeMultiplier, float colR, float colG, float colB) {
         float effectiveRx = rx + softness_;
@@ -163,7 +164,7 @@ private:
 
 public:
     TwinkleEffect()
-        : numStars_(120), avgSpeed_(0.45f), softness_(1.5f), smallMaxRadius_(2.5f), bethlehemWidth_(2.0f), bethlehemCenterBoost_(0.5f), frameCount_(0), rng_(std::random_device{}()), mode_(2), mixRatio_(0.8f) {}
+        : numStars_(120), avgSpeed_(0.45f), softness_(1.5f), smallMaxRadius_(2.5f), bethlehemWidth_(2.0f), bethlehemCenterBoost_(0.5f), frameCount_(0), rng_(std::random_device{}()), mode_(2), mixRatio_(0.95f), groundThreshold_(0.0f) {}
 
     std::string getName() const override { return "twinkle"; }
     std::string getDescription() const override { return "Static twinkling stars: small round stars and Star-of-Bethlehem shapes"; }
@@ -174,7 +175,8 @@ public:
                   << "  --twinkle-speed <f>   Average twinkle speed (default: 1.0)\n"
                   << "  --softness <f>        Edge softness/blur (default: 1.5)\n"
                   << "  --type <small|bethlehem|mixed>  Star type (default: mixed)\n"
-                  << "  --mix-ratio <f>       When mixed, fraction of small stars (0..1, default: 0.8)\n";
+                  << "  --mix-ratio <f>       When mixed, fraction of small stars (0..1, default: 0.95)\n"
+                  << "  --ground-threshold  (0.0 - 0.95) portion of ground to avoid placing stars on (default 0.0)\n";
     }
 
     bool parseArgs(int argc, char** argv, int& i) override {
@@ -199,6 +201,11 @@ public:
             if (mixRatio_ < 0.0f) mixRatio_ = 0.0f;
             if (mixRatio_ > 1.0f) mixRatio_ = 1.0f;
             return true;
+        } else if (arg == "--ground-threshold" && i + 1 < argc) {
+            groundThreshold_ = std::atof(argv[++i]);
+            if (groundThreshold_ < 0.0f) groundThreshold_ = 0.0f;
+            if (groundThreshold_ > 0.95f) groundThreshold_ = 0.95f;
+            return true;
         }
         return false;
     }
@@ -207,7 +214,7 @@ public:
         width_ = width; height_ = height; fps_ = fps;
 
         std::uniform_real_distribution<float> distX(0.0f, (float)width_);
-        std::uniform_real_distribution<float> distY(0.0f, (float)height_);
+        std::uniform_real_distribution<float> distY(0.0f, (float)height_ * (1.0f - groundThreshold_));
         std::uniform_real_distribution<float> distRadius(0.6f, smallMaxRadius_);
         std::uniform_real_distribution<float> distOpacity(0.2f, 1.0f);
         std::uniform_real_distribution<float> distPhase(0.0f, 2.0f * 3.14159265f);
@@ -296,7 +303,7 @@ public:
         frameCount_++;
 
         std::uniform_real_distribution<float> distX(0.0f, (float)width_);
-        std::uniform_real_distribution<float> distY(0.0f, (float)height_);
+        std::uniform_real_distribution<float> distY(0.0f, (float)height_ * (1.0f - groundThreshold_));
         std::uniform_real_distribution<float> distRadius(0.6f, smallMaxRadius_);
         std::uniform_real_distribution<float> distOpacity(0.2f, 1.0f);
         std::uniform_real_distribution<float> distPhase(0.0f, 2.0f * 3.14159265f);
