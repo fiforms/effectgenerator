@@ -45,7 +45,11 @@ void printUsage(const char* prog) {
     std::cout << "  --background-image <path> Background image (JPG/PNG)\n";
     std::cout << "  --background-video <path> Background video (MP4/MOV/etc)\n";
     std::cout << "  --crf <int>               Output video quality (default: 23, lower is better)\n\n";
-    std::cout << "  --output <string>         Output filename (required)\n\n";
+    std::cout << "Audio Options:\n";
+    std::cout << "  --audio-codec <string>    Output Audio Codec (passed to ffmpeg, default none)\n";
+    std::cout << "  --audio-bitrate <int>     Audio Bitrate in kbps (default: 192)\n";
+    std::cout << "Output Options:\n";
+    std::cout << "  --output <string>         Output filename (required)\n";
     std::cout << "  --overwrite               Overwrite output file if it exists\n\n";
     std::cout << "Environment Variables:\n";
     std::cout << "  FFMPEG_PATH               Path to ffmpeg executable\n\n";
@@ -202,6 +206,8 @@ int main(int argc, char** argv) {
     std::string backgroundVideo;
     std::string effectName;
     std::string ffmpegPath;
+    std::string audioCodec;
+    std::string audioBitrate = "";
     
     std::unique_ptr<Effect> effect;
     
@@ -220,6 +226,10 @@ int main(int argc, char** argv) {
             fadeDuration = std::atof(argv[++i]);
         } else if (arg == "--crf" && i + 1 < argc) {
             crf = std::atoi(argv[++i]);
+        } else if (arg == "--audio-codec" && i + 1 < argc) {
+            audioCodec = argv[++i];
+        } else if (arg == "--audio-bitrate" && i + 1 < argc) {
+            audioBitrate = argv[++i];
         } else if (arg == "--output" && i + 1 < argc) {
             output = argv[++i];
         } else if (arg == "--overwrite") {
@@ -271,7 +281,7 @@ int main(int argc, char** argv) {
     }
     
     // Create video generator (pass CLI CRF through)
-    VideoGenerator generator(width, height, fps, fadeDuration, crf);
+    VideoGenerator generator(width, height, fps, fadeDuration, crf, audioCodec, audioBitrate);
     
     // Set background if specified
     if (!backgroundImage.empty()) {

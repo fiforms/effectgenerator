@@ -55,8 +55,8 @@ std::string VideoGenerator::findFFmpeg() {
     return "ffmpeg"; // Fall back to PATH
 }
 
-VideoGenerator::VideoGenerator(int width, int height, int fps, float fadeDuration, int crf)
-    : width_(width), height_(height), fps_(fps), fadeDuration_(fadeDuration), crf_(crf),
+VideoGenerator::VideoGenerator(int width, int height, int fps, float fadeDuration, int crf, std::string audioCodec, std::string audioBitrate)
+    : width_(width), height_(height), fps_(fps), fadeDuration_(fadeDuration), crf_(crf), audioCodec_(audioCodec), audioBitrate_(audioBitrate),
       hasBackground_(false), isVideo_(false), videoInput_(nullptr), ffmpegOutput_(nullptr) {
     frame_.resize(width * height * 3);
     ffmpegPath_ = findFFmpeg();
@@ -97,7 +97,7 @@ bool VideoGenerator::startBackgroundVideo(const char* filename) {
     char cmd[2048];
     snprintf(cmd, sizeof(cmd),
             "\"%s\" -i \"%s\" -vf \"scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d\" "
-            "-f rawvideo -pix_fmt rgb24 -r %d -",
+            "-f rawvideo -pix_fmt rgb24 -r %d -hide_banner -loglevel error -",
             ffmpegPath_.c_str(), filename, width_, height_, width_, height_, fps_);
     
     videoInput_ = popen(cmd, "r");
@@ -177,7 +177,7 @@ bool VideoGenerator::setBackgroundVideo(const char* filename) {
 }
 
 bool VideoGenerator::startFFmpegOutput(const char* filename) {
-    char cmd[2048];
+    char cmd[4096];
     
     // Check for custom FFmpeg parameters from environment
     const char* customParams = std::getenv("FFMPEG_PARAMETERS");
@@ -200,6 +200,17 @@ bool VideoGenerator::startFFmpegOutput(const char* filename) {
             }
         }
 
+        // Build Audio parameters if specified
+        char audioParams1[1024] = "";
+        char audioParams2[1024] = "";
+        if (!audioCodec_.empty()) {
+            snprintf(audioParams1, sizeof(audioParams1), "-i '%s' -map 0:v:0 -map 1:a:0 ", backgroundVideo_.c_str());
+            snprintf(audioParams2, sizeof(audioParams2), "-c:a %s ", audioCodec_.c_str());
+            if (!audioBitrate_.empty()) {
+                snprintf(audioParams2, sizeof(audioParams2), "%s-b:a %s ", audioParams2, audioBitrate_.c_str());
+            }  
+        }
+
         // Use different codec parameters depending on extension
         if (outExt == "webm") {
             // AV1 via SVT-AV1 for .webm outputs (preset 7)
@@ -216,9 +227,9 @@ bool VideoGenerator::startFFmpegOutput(const char* filename) {
         } else {
             // Default: H.264 with configurable CRF
             snprintf(cmd, sizeof(cmd),
-                    "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
-                    "-c:v libx264 -preset medium -crf %d -pix_fmt yuv420p -movflags faststart \"%s\" -hide_banner -loglevel error",
-                    ffmpegPath_.c_str(), width_, height_, fps_, crf_, filename);
+                    "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - %s"
+                    "-c:v libx264 -preset medium -crf %d -pix_fmt yuv420p %s -movflags faststart \"%s\" -hide_banner -loglevel error",
+                    ffmpegPath_.c_str(), width_, height_, fps_, audioParams1,  crf_, audioParams2, filename);
         }
     }
     
