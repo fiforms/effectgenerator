@@ -18,9 +18,9 @@
 
 std::string VideoGenerator::findFFmpeg(std::string binaryName) {
     // 1. Check environment variable first
-    const std::string envPath = binaryName == "ffmpeg" ? std::getenv("FFMPEG_PATH") : std::getenv("FFPROBE_PATH");
-    if (envPath.empty() == false) {
-        return std::string(envPath);
+    const char* envPtr = binaryName == "ffmpeg" ? std::getenv("FFMPEG_PATH") : std::getenv("FFPROBE_PATH");
+    if (envPtr && envPtr[0] != '\0') {
+        return std::string(envPtr);
     }
     
     // 2. Try common locations
