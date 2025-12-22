@@ -161,7 +161,7 @@ private:
     FILE* videoInput_;
     FILE* ffmpegOutput_;
     
-    std::string findFFmpeg();
+    std::string findFFmpeg(std::string binaryName);
     bool loadBackgroundImage(const char* filename);
     bool startBackgroundVideo(const char* filename);
     bool readVideoFrame();

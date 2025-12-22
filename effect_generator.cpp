@@ -16,32 +16,33 @@
     #include <unistd.h>
 #endif
 
-std::string VideoGenerator::findFFmpeg() {
+std::string VideoGenerator::findFFmpeg(std::string binaryName) {
     // 1. Check environment variable first
-    const char* envPath = std::getenv("FFMPEG_PATH");
-    if (envPath && envPath[0] != '\0') {
+    const std::string envPath = binaryName == "ffmpeg" ? std::getenv("FFMPEG_PATH") : std::getenv("FFPROBE_PATH");
+    if (envPath.empty() == false) {
         return std::string(envPath);
     }
     
     // 2. Try common locations
 #ifdef _WIN32
-    const char* testPaths[] = {
+    const std::string testPaths[] = {
         "ffmpeg.exe",
         "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
         "C:\\ffmpeg\\bin\\ffmpeg.exe"
     };
 #else
-    const char* testPaths[] = {
-        "ffmpeg",
-        "/usr/bin/ffmpeg",
-        "/usr/local/bin/ffmpeg",
-        "/opt/homebrew/bin/ffmpeg"
+    // FIXME: substitute ffmpeg literal with binaryName
+    const std::string testPaths[] = {
+        binaryName,
+        "/usr/bin/" + binaryName,
+        "/usr/local/bin/" + binaryName,
+        "/opt/homebrew/bin/" + binaryName
     };
 #endif
     
-    for (const char* path : testPaths) {
+    for (const std::string &path : testPaths) {
         // Test if ffmpeg is accessible
-        std::string testCmd = std::string(path) + " -version";
+        std::string testCmd = path + " -version";
 #ifdef _WIN32
         testCmd += " >nul 2>&1";
 #else
@@ -51,15 +52,15 @@ std::string VideoGenerator::findFFmpeg() {
             return std::string(path);
         }
     }
-    
-    return "ffmpeg"; // Fall back to PATH
+
+    return ""; // Not found
 }
 
 VideoGenerator::VideoGenerator(int width, int height, int fps, float fadeDuration, int crf, std::string audioCodec, std::string audioBitrate)
     : width_(width), height_(height), fps_(fps), fadeDuration_(fadeDuration), crf_(crf), audioCodec_(audioCodec), audioBitrate_(audioBitrate),
       hasBackground_(false), isVideo_(false), videoInput_(nullptr), ffmpegOutput_(nullptr) {
     frame_.resize(width * height * 3);
-    ffmpegPath_ = findFFmpeg();
+    ffmpegPath_ = findFFmpeg("ffmpeg");
 }
 
 VideoGenerator::~VideoGenerator() {
@@ -116,18 +117,10 @@ bool VideoGenerator::startBackgroundVideo(const char* filename) {
 double VideoGenerator::probeVideoDuration(const char* filename) {
     if (!filename) return -1.0;
 
-    // Derive ffprobe path from ffmpeg path when possible
-    std::string ffprobe = "ffprobe";
-    std::string ffmpegBase = ffmpegPath_;
-    size_t pos = ffmpegBase.find_last_of("/\\");
-    std::string bin = (pos == std::string::npos) ? ffmpegBase : ffmpegBase.substr(pos + 1);
-    if (bin.find("ffmpeg") != std::string::npos) {
-        std::string dir = (pos == std::string::npos) ? std::string() : ffmpegBase.substr(0, pos + 1);
-        std::string probeName = bin;
-        // Replace "ffmpeg" with "ffprobe" in the binary name
-        size_t r = probeName.find("ffmpeg");
-        if (r != std::string::npos) probeName.replace(r, 6, "ffprobe");
-        ffprobe = dir + probeName;
+    std::string ffprobe = findFFmpeg("ffprobe");
+    if (ffprobe.empty()) {
+        std::cerr << "ffprobe not found; cannot probe video duration\n";
+        return -1.0;
     }
 
     // Build command to get duration in seconds (quiet output)
@@ -179,6 +172,11 @@ bool VideoGenerator::setBackgroundVideo(const char* filename) {
 bool VideoGenerator::startFFmpegOutput(const char* filename) {
     char cmd[4096];
     
+    if (ffmpegPath_.empty()) {
+        std::cerr << "FFmpeg path not set or FFmpeg not found\n";
+        return false;
+    }
+
     // Check for custom FFmpeg parameters from environment
     const char* customParams = std::getenv("FFMPEG_PARAMETERS");
     if (customParams && customParams[0] != '\0') {
@@ -205,9 +203,11 @@ bool VideoGenerator::startFFmpegOutput(const char* filename) {
         char audioParams2[1024] = "";
         if (!audioCodec_.empty()) {
             snprintf(audioParams1, sizeof(audioParams1), "-i '%s' -map 0:v:0 -map 1:a:0 ", backgroundVideo_.c_str());
-            snprintf(audioParams2, sizeof(audioParams2), "-c:a %s ", audioCodec_.c_str());
-            if (!audioBitrate_.empty()) {
-                snprintf(audioParams2, sizeof(audioParams2), "%s-b:a %s ", audioParams2, audioBitrate_.c_str());
+
+            if (audioBitrate_.empty()) {
+                snprintf(audioParams2, sizeof(audioParams2), "-c:a %s ", audioCodec_.c_str());
+            } else {
+                snprintf(audioParams2, sizeof(audioParams2), "-c:a %s -b:a %s ", audioCodec_.c_str(), audioBitrate_.c_str());
             }  
         }
 
