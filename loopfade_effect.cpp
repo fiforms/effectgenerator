@@ -66,9 +66,7 @@ public:
         }
         
         std::cout << "Loop fade: " << crossfadeFrames_ << " frames (" 
-                  << crossfadeDuration_ << "s) crossfade\n";
-        std::cout << "IMPORTANT: Make sure you specified --duration!\n";
-        
+                  << crossfadeDuration_ << "s) crossfade\n";        
         return true;
     }
     
