@@ -108,7 +108,7 @@ private:
         f.baseVx = distVx(rng_);
         f.baseVy = distVy(rng_);
         // scale velocity exponentially with size so larger (closer) flakes move faster
-        const float sizeSpeedScale = std::exp((f.radius - avgSize_) * 0.30f);
+        const float sizeSpeedScale = std::exp((f.radius - avgSize_) / avgSize_);
         f.baseVx *= sizeSpeedScale;
         f.baseVy *= sizeSpeedScale;
         f.vx = f.baseVx;
@@ -231,7 +231,7 @@ private:
     
 public:
     SnowflakeEffect()
-        : numFlakes_(150), avgSize_(3.0f), sizeVariance_(1.5f), minSize_(0.5f), maxSize_(avgSize_ * 6.0f), sizeBias_(2.0f),
+        : numFlakes_(150), avgSize_(3.0f), sizeVariance_(1.5f), minSize_(0.5f), maxSize_(-1.0f), sizeBias_(2.0f),
             avgMotionX_(0.5f), avgMotionY_(2.0f), motionRandomness_(1.0f),
             softness_(2.0f), maxBrightness_(1.0f), brightnessSpeed_(1.0f), timeoutFadeDuration_(0.8f), avgHue_(0.0f), saturation_(0.0f), hueRange_(0.0f), frameCount_(0), spin_(true), spinFraction_(0.55f), spinMinAspect_(0.1f), spinAxis_(0), rng_(std::random_device{}()) {}
         
@@ -250,22 +250,22 @@ public:
         using Opt = Effect::EffectOption;
         std::vector<Opt> opts;
         opts.push_back({"--flakes", "int", 1, 10000, true, "Number of snowflakes", "150"});
-        opts.push_back({"--size", "float", 0.01, 10000.0, true, "Average snowflake size", "3.0"});
-        opts.push_back({"--size-var", "float", 0.0, 10000.0, true, "Size variance", "1.5"});
-        opts.push_back({"--motion-x", "float", -10000.0, 10000.0, true, "Average X motion per frame", "0.5"});
-        opts.push_back({"--motion-y", "float", -10000.0, 10000.0, true, "Average Y motion per frame", "2.0"});
-        opts.push_back({"--randomness", "float", 0.0, 10000.0, true, "Motion randomness", "1.0"});
-        opts.push_back({"--softness", "float", 0.0, 10000.0, true, "Edge softness/blur", "2.0"});
+        opts.push_back({"--size", "float", 0.01, 50.0, true, "Average snowflake size", "3.0"});
+        opts.push_back({"--size-var", "float", 0.0, 50.0, true, "Size variance", "1.5"});
+        opts.push_back({"--motion-x", "float", -50.0, 50.0, true, "Average X motion per frame", "0.5"});
+        opts.push_back({"--motion-y", "float", -50.0, 50.0, true, "Average Y motion per frame", "2.0"});
+        opts.push_back({"--randomness", "float", 0.0, 20.0, true, "Motion randomness", "1.0"});
+        opts.push_back({"--softness", "float", 0.0, 50.0, true, "Edge softness/blur", "2.0"});
         opts.push_back({"--brightness", "float", 0.0, 1.0, true, "Max brightness 0.0-1.0", "1.0"});
-        opts.push_back({"--pulse", "float", 0.0, 10000.0, true, "Average speed of brightness pulsing (set 0 to disable)", "1.0"});
+        opts.push_back({"--pulse", "float", 0.0, 100.0, true, "Average speed of brightness pulsing (set 0 to disable)", "1.0"});
         opts.push_back({"--hue", "float", 0.0, 1.0, true, "Average hue 0.0-1.0", "0.0"});
         opts.push_back({"--saturation", "float", 0.0, 1.0, true, "Saturation 0.0-1.0", "0.0"});
         opts.push_back({"--hue-range", "float", 0.0, 1.0, true, "Hue range 0.0-1.0", "0.0"});
         opts.push_back({"--no-spin", "boolean", 0, 1, false, "Disable spin-like aspect morphing", "false"});
         opts.push_back({"--spin-axis", "string", 0, 0, false, "Axis for spin: h=horizontal, v=vertical, random=per-flake random", "random"});
-        opts.push_back({"--min-size", "float", 0.01, 10000.0, true, "Minimum flake size", "0.5"});
-        opts.push_back({"--max-size", "float", 0.01, 100000.0, true, "Maximum flake size (default: avgSize*6)", ""});
-        opts.push_back({"--size-bias", "float", 0.0, 10000.0, true, "Bias for exponential size distribution (>0). Larger => more small flakes", "2.0"});
+        opts.push_back({"--min-size", "float", 0.01, 10.0, true, "Minimum flake size", "0.5"});
+        opts.push_back({"--max-size", "float", 0.01, 600.0, true, "Maximum flake size (default: avgSize*6)", ""});
+        opts.push_back({"--size-bias", "float", 0.0, 100.0, true, "Bias for exponential size distribution (>0). Larger => more small flakes", "2.0"});
         return opts;
     }
     
@@ -339,6 +339,9 @@ public:
         width_ = width;
         height_ = height;
         fps_ = fps;
+        if(maxSize_ < 0.0f) {
+            maxSize_ = avgSize_ * 6.0f;
+        }
         
         std::uniform_real_distribution<float> distX(0, width);
         std::uniform_real_distribution<float> distY(0, height);
