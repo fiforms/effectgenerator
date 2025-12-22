@@ -38,6 +38,24 @@ public:
     virtual std::string getName() const = 0;
     virtual std::string getDescription() const = 0;
     virtual void printHelp() const = 0;
+    // Describe the effect's options in a machine-readable form. Each
+    // EffectOption contains the option name (e.g. "--size"), type
+    // ("int","float","string","boolean"), an optional numeric
+    // range (low/high) and a short description. Default implementation
+    // returns an empty list for backwards compatibility.
+    struct EffectOption {
+        std::string name;
+        std::string type; // "int", "float", "string", "boolean"
+        double rangeLow;
+        double rangeHigh;
+        bool hasRange;
+        std::string description;
+        std::string defaultValue; // textual default value (empty if none)
+    };
+
+    virtual std::vector<EffectOption> getOptions() const {
+        return {};
+    }
     
     // Parse effect-specific arguments
     virtual bool parseArgs(int argc, char** argv, int& currentArg) = 0;

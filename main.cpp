@@ -8,6 +8,22 @@
 #include <sstream>
 #include <cstdlib>
 
+void printHelp(auto opts) {
+    // Generate textual help formatted from structured options
+    std::cout << "Effect Options:\n";
+    for (const auto &o : opts) {
+        std::cout << "  " << o.name;
+        if (o.type == "int") std::cout << " <int>";
+        else if (o.type == "float") std::cout << " <float>";
+        else if (o.type == "string") std::cout << " <string>";
+        if (o.hasRange) {
+            std::cout << " [" << o.rangeLow << " to " << o.rangeHigh << "]";
+        }
+        std::cout << "\t" << o.description;
+        std::cout << " (default: " << (o.defaultValue.empty() ? "none" : o.defaultValue) << ")\n";
+    }
+}
+
 void printUsage(const char* prog) {
     std::cout << "Effect Generator " << getEffectGeneratorVersion() << " - Video Effects Tool\n";
     std::cout << "Find the latest version at https://github.com/fiforms/effectgenerator\n";
@@ -109,11 +125,30 @@ int main(int argc, char** argv) {
             auto effect = EffectFactory::instance().create(effectName);
             if (effect) {
                 if (jsonOut) {
-                    // Build JSON object with name, description, and captured help text
                     json_util::JsonValue out = json_util::JsonValue::object();
                     out.set("name", json_util::JsonValue(effect->getName()));
                     out.set("description", json_util::JsonValue(effect->getDescription()));
-                    // Capture help output
+                    // If effect provides structured options, include them in JSON
+                    auto opts = effect->getOptions();
+                    json_util::JsonValue optArr = json_util::JsonValue::array();
+                    for (const auto &o : opts) {
+                        json_util::JsonValue jo = json_util::JsonValue::object();
+                        jo.set("name", json_util::JsonValue(o.name));
+                        jo.set("type", json_util::JsonValue(o.type));
+                        if (o.hasRange) {
+                            json_util::JsonValue range = json_util::JsonValue::object();
+                            range.set("low", json_util::JsonValue(o.rangeLow));
+                            range.set("high", json_util::JsonValue(o.rangeHigh));
+                            jo.set("range", range);
+                        }
+                        jo.set("description", json_util::JsonValue(o.description));
+                        if (!o.defaultValue.empty()) {
+                            jo.set("default", json_util::JsonValue(o.defaultValue));
+                        }
+                        optArr.push_back(jo);
+                    }
+                    out.set("options", optArr);
+                    // Also capture textual help as a convenience (fallback)
                     std::ostringstream helposs;
                     auto oldbuf = std::cout.rdbuf(helposs.rdbuf());
                     effect->printHelp();
@@ -123,7 +158,8 @@ int main(int argc, char** argv) {
                 } else {
                     std::cout << "Effect: " << effect->getName() << "\n";
                     std::cout << effect->getDescription() << "\n\n";
-                    effect->printHelp();
+                    auto effectOpts = effect->getOptions();
+                    printHelp(effectOpts);
                 }
             } else {
                 std::cerr << "Unknown effect: " << effectName << "\n";

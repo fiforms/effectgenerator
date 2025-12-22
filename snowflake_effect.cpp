@@ -243,26 +243,34 @@ public:
     std::string getDescription() const override {
         return "Realistic falling snowflakes with soft edges and natural motion";
     }
-    
+
     void printHelp() const override {
-        std::cout << "Snowflake Effect Options:\n"
-                  << "  --flakes <int>         Number of snowflakes (default: 150)\n"
-                  << "  --size <float>         Average snowflake size (default: 3.0)\n"
-                  << "  --size-var <float>     Size variance (default: 1.5)\n"
-                  << "  --motion-x <float>     Average X motion per frame (default: 0.5)\n"
-                  << "  --motion-y <float>     Average Y motion per frame (default: 2.0)\n"
-                  << "  --randomness <float>   Motion randomness (default: 1.0)\n"
-                  << "  --softness <float>     Edge softness/blur (default: 2.0)\n"
-                  << "  --brightness <float>   Max brightness 0.0-1.0 (default: 1.0)\n"
-                  << "  --pulse <float>        Average speed of brightness pulsing (default: 1.0). Set to 0 to disable pulsing.\n"
-                  << "  --hue <float>          Average hue 0.0-1.0 (default: 0.0 - only matters when saturation>0)\n"
-                  << "  --saturation <float>   Saturation 0.0-1.0 (default: 0.0 = white)\n"
-                  << "  --hue-range <float>    Hue range 0.0-1.0 (0 = same hue, 1 = full range)\n"
-                  << "  --no-spin              Disable spin-like aspect morphing\n"
-                  << "  --spin-axis <h|v|random>  Axis for spin: h=horizontal, v=vertical, random=per-flake random (default: random)\n"
-                  << "  --min-size <float>     Minimum flake size (default: 0.5)\n"
-                  << "  --max-size <float>     Maximum flake size (default: avgSize*6)\n"
-                  << "  --size-bias <float>    Bias for exponential size distribution (>0). Larger => more small flakes (default: 2.0)\n";
+        std::cout << "This function is going away\n";
+    }
+
+    // Provide machine-readable option metadata. This is used by the CLI
+    // to export structured help (JSON) or to format textual help.
+    std::vector<Effect::EffectOption> getOptions() const override {
+        using Opt = Effect::EffectOption;
+        std::vector<Opt> opts;
+        opts.push_back({"--flakes", "int", 1, 10000, true, "Number of snowflakes", "150"});
+        opts.push_back({"--size", "float", 0.01, 10000.0, true, "Average snowflake size", "3.0"});
+        opts.push_back({"--size-var", "float", 0.0, 10000.0, true, "Size variance", "1.5"});
+        opts.push_back({"--motion-x", "float", -10000.0, 10000.0, true, "Average X motion per frame", "0.5"});
+        opts.push_back({"--motion-y", "float", -10000.0, 10000.0, true, "Average Y motion per frame", "2.0"});
+        opts.push_back({"--randomness", "float", 0.0, 10000.0, true, "Motion randomness", "1.0"});
+        opts.push_back({"--softness", "float", 0.0, 10000.0, true, "Edge softness/blur", "2.0"});
+        opts.push_back({"--brightness", "float", 0.0, 1.0, true, "Max brightness 0.0-1.0", "1.0"});
+        opts.push_back({"--pulse", "float", 0.0, 10000.0, true, "Average speed of brightness pulsing (set 0 to disable)", "1.0"});
+        opts.push_back({"--hue", "float", 0.0, 1.0, true, "Average hue 0.0-1.0", "0.0"});
+        opts.push_back({"--saturation", "float", 0.0, 1.0, true, "Saturation 0.0-1.0", "0.0"});
+        opts.push_back({"--hue-range", "float", 0.0, 1.0, true, "Hue range 0.0-1.0", "0.0"});
+        opts.push_back({"--no-spin", "boolean", 0, 1, false, "Disable spin-like aspect morphing", "false"});
+        opts.push_back({"--spin-axis", "string", 0, 0, false, "Axis for spin: h=horizontal, v=vertical, random=per-flake random", "random"});
+        opts.push_back({"--min-size", "float", 0.01, 10000.0, true, "Minimum flake size", "0.5"});
+        opts.push_back({"--max-size", "float", 0.01, 100000.0, true, "Maximum flake size (default: avgSize*6)", ""});
+        opts.push_back({"--size-bias", "float", 0.0, 10000.0, true, "Bias for exponential size distribution (>0). Larger => more small flakes", "2.0"});
+        return opts;
     }
     
     bool parseArgs(int argc, char** argv, int& i) override {
