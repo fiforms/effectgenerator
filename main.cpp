@@ -84,6 +84,29 @@ void listEffectsJson() {
         json_util::JsonValue e = json_util::JsonValue::object();
         e.set("name", json_util::JsonValue(name));
         e.set("description", json_util::JsonValue(factory.getDescription(name)));
+        // Include structured options if available
+        auto effect = factory.create(name);
+        if (effect) {
+            auto opts = effect->getOptions();
+            json_util::JsonValue optArr = json_util::JsonValue::array();
+            for (const auto &o : opts) {
+                json_util::JsonValue jo = json_util::JsonValue::object();
+                jo.set("name", json_util::JsonValue(o.name));
+                jo.set("type", json_util::JsonValue(o.type));
+                if (o.hasRange) {
+                    json_util::JsonValue range = json_util::JsonValue::object();
+                    range.set("low", json_util::JsonValue(o.rangeLow));
+                    range.set("high", json_util::JsonValue(o.rangeHigh));
+                    jo.set("range", range);
+                }
+                jo.set("description", json_util::JsonValue(o.description));
+                if (!o.defaultValue.empty()) {
+                    jo.set("default", json_util::JsonValue(o.defaultValue));
+                }
+                optArr.push_back(jo);
+            }
+            e.set("options", optArr);
+        }
         arr.push_back(e);
     }
     root.set("effects", arr);
