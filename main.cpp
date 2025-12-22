@@ -2,8 +2,10 @@
 // Effect Generator - Main application
 
 #include "effect_generator.h"
+#include "json_util.h"
 #include <iostream>
 #include <string>
+#include <sstream>
 #include <cstdlib>
 
 void printUsage(const char* prog) {
@@ -14,6 +16,7 @@ void printUsage(const char* prog) {
     std::cout << "General Options:\n";
     std::cout << "  --help                    Show this help\n";
     std::cout << "  --list-effects            List all available effects\n";
+    std::cout << "      --json                When combined with --list-effects or --help-<effectname>, output JSON\n";
     std::cout << "  --effect <name>           Select effect to use (required)\n";
     std::cout << "  --help-<effectname>       Show help for specific effect\n";
     std::cout << "  --version                 Show program version\n\n";
@@ -55,6 +58,22 @@ void listEffects() {
     }
 }
 
+void listEffectsJson() {
+    auto& factory = EffectFactory::instance();
+    auto names = factory.getEffectNames();
+
+    json_util::JsonValue root = json_util::JsonValue::object();
+    json_util::JsonValue arr = json_util::JsonValue::array();
+    for (const auto& name : names) {
+        json_util::JsonValue e = json_util::JsonValue::object();
+        e.set("name", json_util::JsonValue(name));
+        e.set("description", json_util::JsonValue(factory.getDescription(name)));
+        arr.push_back(e);
+    }
+    root.set("effects", arr);
+    std::cout << root.toString() << std::endl;
+}
+
 int main(int argc, char** argv) {
     // Check for help or list
     if (argc == 1) {
@@ -71,15 +90,41 @@ int main(int argc, char** argv) {
             std::cout << "Effect Generator: version " << getEffectGeneratorVersion() << "\n";
             return 0;
         } else if (arg == "--list-effects") {
-            listEffects();
+            bool jsonOut = false;
+            if (i + 1 < argc) {
+                std::string next = argv[i+1];
+                if (next == "--json") {
+                    jsonOut = true;
+                }
+            }
+            if (jsonOut) listEffectsJson(); else listEffects();
             return 0;
         } else if (arg.rfind("--help-", 0) == 0) {
             std::string effectName = arg.substr(7);
+            bool jsonOut = false;
+            if (i + 1 < argc) {
+                std::string next = argv[i+1];
+                if (next == "--json") jsonOut = true;
+            }
             auto effect = EffectFactory::instance().create(effectName);
             if (effect) {
-                std::cout << "Effect: " << effect->getName() << "\n";
-                std::cout << effect->getDescription() << "\n\n";
-                effect->printHelp();
+                if (jsonOut) {
+                    // Build JSON object with name, description, and captured help text
+                    json_util::JsonValue out = json_util::JsonValue::object();
+                    out.set("name", json_util::JsonValue(effect->getName()));
+                    out.set("description", json_util::JsonValue(effect->getDescription()));
+                    // Capture help output
+                    std::ostringstream helposs;
+                    auto oldbuf = std::cout.rdbuf(helposs.rdbuf());
+                    effect->printHelp();
+                    std::cout.rdbuf(oldbuf);
+                    out.set("help", json_util::JsonValue(helposs.str()));
+                    std::cout << out.toString() << std::endl;
+                } else {
+                    std::cout << "Effect: " << effect->getName() << "\n";
+                    std::cout << effect->getDescription() << "\n\n";
+                    effect->printHelp();
+                }
             } else {
                 std::cerr << "Unknown effect: " << effectName << "\n";
                 std::cerr << "Use --list-effects to see available effects.\n";
