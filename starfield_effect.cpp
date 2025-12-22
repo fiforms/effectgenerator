@@ -220,15 +220,21 @@ public:
     std::string getDescription() const override { return "Starfield: simulate flying through space from a center point"; }
 
     void printHelp() const override {
-        std::cout << "Starfield Effect Options:\n"
-                  << "  --stars <int>          Number of stars (default: 50)\n"
-                  << "  --speed <float>        Base speed in pixels/frame (default: 3.0)\n"
-                  << "  --speed-jitter <f>     Fractional jitter on speed (default: 0.35)\n"
-                  << "  --size <float>         Base star size in pixels (default: 0.2)\n"
-                  << "  --max-size <float>     Max visual size as star moves outward (default: 16.0)\n"
-                  << "  --center-x <float>     Center X in pixels (default: center of frame)\n"
-                  << "  --center-y <float>     Center Y in pixels (default: center of frame)\n"
-                  << "  --shape <round|4|6>    Star shape: round, 4 (cross), or 6 (three-line Webb-like, default)\n";
+        std::cout << "This function is going away\n";
+    }
+
+    std::vector<Effect::EffectOption> getOptions() const override {
+        using Opt = Effect::EffectOption;
+        std::vector<Opt> opts;
+        opts.push_back({"--stars", "int", 1, 100000, true, "Number of stars", "50"});
+        opts.push_back({"--speed", "float", 0.0, 10000.0, true, "Base speed in pixels/frame", "3.0"});
+        opts.push_back({"--speed-jitter", "float", 0.0, 1.0, true, "Fractional jitter on speed", "0.35"});
+        opts.push_back({"--size", "float", 0.01, 10000.0, true, "Base star size in pixels", "0.2"});
+        opts.push_back({"--max-size", "float", 0.01, 100000.0, true, "Max visual size as star moves outward", "8.0"});
+        opts.push_back({"--center-x", "float", -10000000.0, 10000000.0, true, "Center X in pixels (default: center of frame)", ""});
+        opts.push_back({"--center-y", "float", -10000000.0, 10000000.0, true, "Center Y in pixels (default: center of frame)", ""});
+        opts.push_back({"--shape", "string", 0, 0, false, "Star shape: round, 4 (cross), or 6 (three-line)", "6"});
+        return opts;
     }
 
     bool parseArgs(int argc, char** argv, int& i) override {

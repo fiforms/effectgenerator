@@ -33,18 +33,14 @@ public:
     }
     
     void printHelp() const override {
-        std::cout << "Loop Fade Effect Options:\n"
-                  << "  --crossfade-duration <float>  Crossfade duration in seconds (default: 1.5)\n"
-                  << "\n"
-                  << "Usage:\n"
-                  << "  effectgenerator --effect loopfade --background-video input.mp4 --duration 10\n"
-                  << "\n"
-                  << "IMPORTANT: You MUST specify --duration explicitly for this effect!\n"
-                  << "\n"
-                  << "This effect creates a seamless loop by:\n"
-                  << "1. Capturing frames starting at T=crossfade_duration\n"
-                  << "2. Crossfading those frames at the end of the video\n"
-                  << "3. Result: Last frame smoothly transitions to first frame\n";
+        std::cout << "This function is going away\n";
+    }
+
+    std::vector<Effect::EffectOption> getOptions() const override {
+        using Opt = Effect::EffectOption;
+        std::vector<Opt> opts;
+        opts.push_back({"--crossfade-duration", "float", 0.0, 10000.0, true, "Crossfade duration in seconds", "1.5"});
+        return opts;
     }
     
     bool parseArgs(int argc, char** argv, int& i) override {

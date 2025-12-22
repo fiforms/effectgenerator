@@ -177,21 +177,27 @@ public:
     }
     
     void printHelp() const override {
-        std::cout << "Laser Effect Options:\n"
-                  << "  --focal-x <float>      Initial focal point X (default: center)\n"
-                  << "  --focal-y <float>      Initial focal point Y (default: center)\n"
-                  << "  --focal-motion-x <float> Focal point X velocity (default: 0.0)\n"
-                  << "  --focal-motion-y <float> Focal point Y velocity (default: 0.0)\n"
-                  << "  --focal-random <float>   Focal motion randomness (default: 2.0)\n"
-                  << "  --rays <int>           Number of rays (default: 8)\n"
-                  << "  --intensity <float>    Base ray intensity 0.0-1.0 (default: 0.5)\n"
-                  << "  --ray-width <float>    Ray angular width in radians (default: 0.3)\n"
-                  << "  --ray-width-var <float> Ray width variance (default: 0.1)\n"
-                  << "  --morph-speed <float>  Ray morphing speed 0.0-1.0 (default: 0.05)\n"
-                  << "  --rotation <float>     Global rotation speed rad/s (default: 0.0)\n"
-                  << "  --color-r <float>      Red component 0.0-1.0 (default: 1.0)\n"
-                  << "  --color-g <float>      Green component 0.0-1.0 (default: 1.0)\n"
-                  << "  --color-b <float>      Blue component 0.0-1.0 (default: 1.0)\n";
+        std::cout << "This function is going away\n";
+    }
+
+    std::vector<Effect::EffectOption> getOptions() const override {
+        using Opt = Effect::EffectOption;
+        std::vector<Opt> opts;
+        opts.push_back({"--focal-x", "float", -10000000.0, 10000000.0, true, "Initial focal point X (pixels, default: center)", ""});
+        opts.push_back({"--focal-y", "float", -10000000.0, 10000000.0, true, "Initial focal point Y (pixels, default: center)", ""});
+        opts.push_back({"--focal-motion-x", "float", -10000.0, 10000.0, true, "Focal point X velocity (pixels/frame)", "0.0"});
+        opts.push_back({"--focal-motion-y", "float", -10000.0, 10000.0, true, "Focal point Y velocity (pixels/frame)", "0.0"});
+        opts.push_back({"--focal-random", "float", 0.0, 10000.0, true, "Focal motion randomness (stddev)", "2.0"});
+        opts.push_back({"--rays", "int", 1, 10000, true, "Number of rays", "8"});
+        opts.push_back({"--intensity", "float", 0.0, 1.0, true, "Base ray intensity 0.0-1.0", "0.5"});
+        opts.push_back({"--ray-width", "float", 0.01, 10.0, true, "Ray angular width in radians", "0.3"});
+        opts.push_back({"--ray-width-var", "float", 0.0, 10.0, true, "Ray width variance", "0.1"});
+        opts.push_back({"--morph-speed", "float", 0.0, 1.0, true, "Ray morphing speed 0.0-1.0", "0.05"});
+        opts.push_back({"--rotation", "float", -10000.0, 10000.0, true, "Global rotation speed (radians/sec)", "0.0"});
+        opts.push_back({"--color-r", "float", 0.0, 1.0, true, "Red component 0.0-1.0", "1.0"});
+        opts.push_back({"--color-g", "float", 0.0, 1.0, true, "Green component 0.0-1.0", "1.0"});
+        opts.push_back({"--color-b", "float", 0.0, 1.0, true, "Blue component 0.0-1.0", "1.0"});
+        return opts;
     }
     
     bool parseArgs(int argc, char** argv, int& i) override {

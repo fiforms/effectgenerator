@@ -345,26 +345,29 @@ public:
     }
     
     void printHelp() const override {
-        std::cout << "Wave Effect Options:\n"
-                  << "  --sources <int>         Initial number of wave sources,\n"
-                  << "                          likely irrelevant with warmup (default: 3)\n"
-                  << "  --amplitude <float>     Base wave amplitude (default: 0.3)\n"
-                  << "  --frequency <float>     Base wave frequency (default: 0.02)\n"
-                  << "  --speed <float>         Wave propagation speed (default: 2.0)\n"
-                  << "  --decay <float>         Wave decay with distance (default: 0.001)\n"
-                  << "  --direction <string>    Wave direction: up, down, left, right, upleft, upright,\n"
-                  << "                          downleft, downright (default: omni-directional)\n"
-                  << "  --warmup <float>        Warmup time in seconds to stabilize waves (default: 60.0)\n"
-                  << "  --light-angle <float>   Light direction in degrees (default: -45, top-left)\n"
-                  << "  --light-intensity <float> Lighting effect strength (default: 0.3)\n"
-                  << "  --interference <float>  Wave interference amount 0.0-1.0 (default: 1.0)\n"
-                  << "  --no-displacement       Disable pixel displacement (brightness only)\n"
-                  << "  --displacement-scale <float> Displacement strength in pixels (default: 10.0)\n"
-                  << "  --spawn-prob <float>    Random source spawn probability (default: 0.06)\n"
-                  << "  --offscreen-prob <float> Probability source is offscreen (default: 0.5)\n"
-                  << "                          (ignored in directional mode - always offscreen)\n"
-                  << "  --min-lifetime <float>  Min source lifetime in seconds (default: 5.0)\n"
-                  << "  --max-lifetime <float>  Max source lifetime in seconds (default: 30.0)\n";
+        std::cout << "This function is going away\n";
+    }
+
+    std::vector<Effect::EffectOption> getOptions() const override {
+        using Opt = Effect::EffectOption;
+        std::vector<Opt> opts;
+        opts.push_back({"--sources", "int", 1, 100000, true, "Initial number of wave sources", "3"});
+        opts.push_back({"--amplitude", "float", 0.0, 10000.0, true, "Base wave amplitude", "0.3"});
+        opts.push_back({"--frequency", "float", 0.0, 10.0, true, "Base wave frequency", "0.02"});
+        opts.push_back({"--speed", "float", 0.0, 10000.0, true, "Wave propagation speed", "2.0"});
+        opts.push_back({"--decay", "float", 0.0, 1000.0, true, "Wave decay with distance", "0.001"});
+        opts.push_back({"--direction", "string", 0, 0, false, "Wave direction: up/down/left/right/upleft/upright/downleft/downright", ""});
+        opts.push_back({"--warmup", "float", 0.0, 100000.0, true, "Warmup time in seconds to stabilize waves", "0.0"});
+        opts.push_back({"--light-angle", "float", -360.0, 360.0, true, "Light direction in degrees", "-45"});
+        opts.push_back({"--light-intensity", "float", 0.0, 10.0, true, "Lighting effect strength", "0.3"});
+        opts.push_back({"--interference", "float", 0.0, 1.0, true, "Wave interference amount 0.0-1.0", "1.0"});
+        opts.push_back({"--no-displacement", "boolean", 0, 1, false, "Disable pixel displacement (brightness only)", "false"});
+        opts.push_back({"--displacement-scale", "float", 0.0, 1000.0, true, "Displacement strength in pixels", "10.0"});
+        opts.push_back({"--spawn-prob", "float", 0.0, 1.0, true, "Random source spawn probability", "0.06"});
+        opts.push_back({"--offscreen-prob", "float", 0.0, 1.0, true, "Probability source is offscreen", "0.5"});
+        opts.push_back({"--min-lifetime", "float", 0.0, 100000.0, true, "Min source lifetime in seconds", "2.0"});
+        opts.push_back({"--max-lifetime", "float", 0.0, 100000.0, true, "Max source lifetime in seconds", "8.0"});
+        return opts;
     }
     
     bool parseArgs(int argc, char** argv, int& i) override {

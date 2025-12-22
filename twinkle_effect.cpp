@@ -170,13 +170,19 @@ public:
     std::string getDescription() const override { return "Static twinkling stars: small round stars and Star-of-Bethlehem shapes"; }
 
     void printHelp() const override {
-        std::cout << "Twinkle Effect Options:\n"
-                  << "  --stars <int>         Number of stars (default: 400)\n"
-                  << "  --twinkle-speed <f>   Average twinkle speed (default: 1.0)\n"
-                  << "  --softness <f>        Edge softness/blur (default: 1.5)\n"
-                  << "  --type <small|bethlehem|mixed>  Star type (default: mixed)\n"
-                  << "  --mix-ratio <f>       When mixed, fraction of small stars (0..1, default: 0.95)\n"
-                  << "  --ground-threshold  (0.0 - 0.95) portion of ground to avoid placing stars on (default 0.0)\n";
+        std::cout << "This function is going away\n";
+    }
+
+    std::vector<Effect::EffectOption> getOptions() const override {
+        using Opt = Effect::EffectOption;
+        std::vector<Opt> opts;
+        opts.push_back({"--stars", "int", 1, 100000, true, "Number of stars", "120"});
+        opts.push_back({"--twinkle-speed", "float", 0.0, 10000.0, true, "Average twinkle speed", "0.45"});
+        opts.push_back({"--softness", "float", 0.0, 10000.0, true, "Edge softness/blur", "1.5"});
+        opts.push_back({"--type", "string", 0, 0, false, "Star type: small, bethlehem, or mixed", "mixed"});
+        opts.push_back({"--mix-ratio", "float", 0.0, 1.0, true, "When mixed, fraction of small stars (0..1)", "0.95"});
+        opts.push_back({"--ground-threshold", "float", 0.0, 0.95, true, "Portion of ground to avoid placing stars on (0.0-0.95)", "0.0"});
+        return opts;
     }
 
     bool parseArgs(int argc, char** argv, int& i) override {
