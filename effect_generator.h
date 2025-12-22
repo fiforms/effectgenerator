@@ -37,7 +37,7 @@ public:
     // Effect metadata
     virtual std::string getName() const = 0;
     virtual std::string getDescription() const = 0;
-    virtual void printHelp() const = 0;
+
     // Describe the effect's options in a machine-readable form. Each
     // EffectOption contains the option name (e.g. "--size"), type
     // ("int","float","string","boolean"), an optional numeric

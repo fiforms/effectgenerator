@@ -169,10 +169,6 @@ public:
     std::string getName() const override { return "twinkle"; }
     std::string getDescription() const override { return "Static twinkling stars: small round stars and Star-of-Bethlehem shapes"; }
 
-    void printHelp() const override {
-        std::cout << "This function is going away\n";
-    }
-
     std::vector<Effect::EffectOption> getOptions() const override {
         using Opt = Effect::EffectOption;
         std::vector<Opt> opts;

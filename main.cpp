@@ -151,7 +151,6 @@ int main(int argc, char** argv) {
                     // Also capture textual help as a convenience (fallback)
                     std::ostringstream helposs;
                     auto oldbuf = std::cout.rdbuf(helposs.rdbuf());
-                    effect->printHelp();
                     std::cout.rdbuf(oldbuf);
                     out.set("help", json_util::JsonValue(helposs.str()));
                     std::cout << out.toString() << std::endl;

@@ -343,10 +343,6 @@ public:
     std::string getDescription() const override {
         return "Water wave ripples with interference and directional lighting";
     }
-    
-    void printHelp() const override {
-        std::cout << "This function is going away\n";
-    }
 
     std::vector<Effect::EffectOption> getOptions() const override {
         using Opt = Effect::EffectOption;

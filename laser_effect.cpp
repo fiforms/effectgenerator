@@ -175,10 +175,6 @@ public:
     std::string getDescription() const override {
         return "Animated radial rays/laser effect with moving focal point";
     }
-    
-    void printHelp() const override {
-        std::cout << "This function is going away\n";
-    }
 
     std::vector<Effect::EffectOption> getOptions() const override {
         using Opt = Effect::EffectOption;

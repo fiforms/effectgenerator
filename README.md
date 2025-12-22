@@ -140,7 +140,7 @@ Effects must implement:
 
 - `getName()` - Effect identifier
 - `getDescription()` - Short description
-- `printHelp()` - Print effect-specific help
+- `getOptions()` - effect-specific parameters
 - `parseArgs()` - Parse command-line arguments
 - `initialize()` - Set up effect (called once)
 - `renderFrame()` - Render one frame

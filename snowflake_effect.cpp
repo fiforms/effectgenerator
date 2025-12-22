@@ -244,10 +244,6 @@ public:
         return "Realistic falling snowflakes with soft edges and natural motion";
     }
 
-    void printHelp() const override {
-        std::cout << "This function is going away\n";
-    }
-
     // Provide machine-readable option metadata. This is used by the CLI
     // to export structured help (JSON) or to format textual help.
     std::vector<Effect::EffectOption> getOptions() const override {

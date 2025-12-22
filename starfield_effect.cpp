@@ -219,10 +219,6 @@ public:
     std::string getName() const override { return "starfield"; }
     std::string getDescription() const override { return "Starfield: simulate flying through space from a center point"; }
 
-    void printHelp() const override {
-        std::cout << "This function is going away\n";
-    }
-
     std::vector<Effect::EffectOption> getOptions() const override {
         using Opt = Effect::EffectOption;
         std::vector<Opt> opts;
