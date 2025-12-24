@@ -39,6 +39,10 @@ private:
     float sparkSpeed_;
     float sparkSize_;
     float trailIntensity_;
+    float horizontalDrift_;
+    int sparksVariance_;
+    float launchRandomness_;
+    
     
     std::vector<Rocket> rockets_;
     std::vector<Spark> sparks_;
@@ -82,7 +86,7 @@ private:
         std::uniform_real_distribution<float> distX(width_ * 0.2f, width_ * 0.8f);
         std::uniform_real_distribution<float> distTargetY(height_ * 0.2f, height_ * 0.6f);
         std::uniform_real_distribution<float> distHue(0.0f, 1.0f);
-        std::uniform_real_distribution<float> distVx(-1.0f, 1.0f);
+        std::uniform_real_distribution<float> distVx(-horizontalDrift_, horizontalDrift_);
         
         r->x = distX(rng_);
         r->y = height_;
@@ -109,10 +113,18 @@ private:
         std::uniform_real_distribution<float> distDecay(0.008f, 0.02f);
         std::uniform_real_distribution<float> distSize(0.5f, 1.5f);
         
+        // Randomize number of sparks for this explosion
+        int sparkVariance = (int)(sparksVariance_ * 0.5f);
+        std::uniform_int_distribution<int> distSparkCount(
+            std::max(10, sparksPerRocket_ - sparkVariance),
+            sparksPerRocket_ + sparkVariance
+        );
+        int sparksToCreate = distSparkCount(rng_);
+        
         // Create burst of sparks
         int sparksCreated = 0;
         for (auto& spark : sparks_) {
-            if (!spark.active && sparksCreated < sparksPerRocket_) {
+            if (!spark.active && sparksCreated < sparksToCreate) {
                 float angle = distAngle(rng_);
                 float speed = distSpeed(rng_) * sparkSpeed_;
                 
@@ -184,8 +196,9 @@ public:
     FireworksEffect()
         : width_(1920), height_(1080), fps_(30), frameCount_(0),
           gravity_(0.5f), maxRockets_(10), sparksPerRocket_(100),
-          launchFrequency_(0.5f), sparkSpeed_(5.0f), sparkSize_(2.0f),
-          trailIntensity_(0.5f), nextLaunchTime_(0.0f),
+          sparksVariance_(50), launchFrequency_(0.5f), launchRandomness_(0.5f),
+          sparkSpeed_(5.0f), sparkSize_(2.0f), trailIntensity_(0.5f),
+          horizontalDrift_(2.0f), nextLaunchTime_(0.0f),
           rng_(std::random_device{}()) {}
     
     std::string getName() const override {
@@ -200,11 +213,14 @@ public:
         using Opt = Effect::EffectOption;
         std::vector<Opt> opts;
         opts.push_back({"--frequency", "float", 0.1, 5.0, true, "Rockets launched per second", "0.5"});
-        opts.push_back({"--sparks", "int", 10, 500, true, "Sparks per explosion", "100"});
+        opts.push_back({"--frequency-randomness", "float", 0.0, 1.0, true, "Randomness in launch timing (0=regular, 1=very random)", "0.5"});
+        opts.push_back({"--sparks", "int", 10, 500, true, "Average sparks per explosion", "100"});
+        opts.push_back({"--sparks-variance", "int", 0, 200, true, "Variance in spark count per explosion", "50"});
         opts.push_back({"--gravity", "float", 0.01, 1.0, true, "Gravity strength", "0.5"});
         opts.push_back({"--speed", "float", 0.5, 10.0, true, "Spark speed multiplier", "5.0"});
         opts.push_back({"--size", "float", 0.5, 10.0, true, "Spark size", "2.0"});
         opts.push_back({"--trail", "float", 0.0, 1.0, true, "Rocket trail intensity", "0.5"});
+        opts.push_back({"--drift", "float", 0.0, 10.0, true, "Horizontal drift of rocket trajectories", "2.0"});
         return opts;
     }
     
@@ -214,8 +230,14 @@ public:
         if (arg == "--frequency" && i + 1 < argc) {
             launchFrequency_ = std::atof(argv[++i]);
             return true;
+        } else if (arg == "--frequency-randomness" && i + 1 < argc) {
+            launchRandomness_ = std::atof(argv[++i]);
+            return true;
         } else if (arg == "--sparks" && i + 1 < argc) {
             sparksPerRocket_ = std::atoi(argv[++i]);
+            return true;
+        } else if (arg == "--sparks-variance" && i + 1 < argc) {
+            sparksVariance_ = std::atoi(argv[++i]);
             return true;
         } else if (arg == "--gravity" && i + 1 < argc) {
             gravity_ = std::atof(argv[++i]);
@@ -228,6 +250,9 @@ public:
             return true;
         } else if (arg == "--trail" && i + 1 < argc) {
             trailIntensity_ = std::atof(argv[++i]);
+            return true;
+        } else if (arg == "--drift" && i + 1 < argc) {
+            horizontalDrift_ = std::atof(argv[++i]);
             return true;
         }
         
@@ -301,8 +326,13 @@ public:
         // Launch new rockets
         if (time >= nextLaunchTime_) {
             launchRocket();
-            std::uniform_real_distribution<float> distInterval(0.8f, 1.2f);
-            nextLaunchTime_ = time + (distInterval(rng_) / launchFrequency_);
+            // Add randomness to launch interval
+            float baseInterval = 1.0f / launchFrequency_;
+            std::uniform_real_distribution<float> distRandomness(
+                1.0f - launchRandomness_, 
+                1.0f + launchRandomness_
+            );
+            nextLaunchTime_ = time + baseInterval * distRandomness(rng_);
         }
         
         // Update rockets
