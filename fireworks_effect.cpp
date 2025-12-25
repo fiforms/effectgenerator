@@ -42,6 +42,14 @@ private:
     float horizontalDrift_;
     int sparksVariance_;
     float launchRandomness_;
+
+    // For Groundfire-like effect
+    bool groundFireEnabled_;
+    float groundFireRate_;          // bursts per second
+    int groundFireSparks_;          // sparks per burst
+    float groundFireSpread_;        // radians, e.g. PI/3
+    float groundR_, groundG_, groundB_;
+
     
     
     std::vector<Rocket> rockets_;
@@ -49,6 +57,7 @@ private:
     std::mt19937 rng_;
     
     float nextLaunchTime_;
+    float nextGroundFireTime_;
     
     void hsvToRgb(float h, float s, float v, float &r, float &g, float &b) {
         if (s <= 0.0f) {
@@ -148,6 +157,42 @@ private:
         r.active = false;
     }
     
+    void emitGroundFire() {
+        std::uniform_real_distribution<float> distX(0.1f * width_, 0.9f * width_);
+        std::uniform_real_distribution<float> distAngle(
+            -groundFireSpread_ * 0.5f,
+            groundFireSpread_ * 0.5f
+        );
+        std::uniform_real_distribution<float> distSpeed(1.0f, 4.0f);
+        std::uniform_real_distribution<float> distDecay(0.015f, 0.03f);
+        std::uniform_real_distribution<float> distSize(0.4f, 1.2f);
+
+        float baseX = distX(rng_);
+        float baseY = height_ - 2.0f;
+
+        int created = 0;
+        for (auto& s : sparks_) {
+            if (!s.active && created < groundFireSparks_) {
+                float angle = -3.14159265f / 2.0f + distAngle(rng_);
+                float speed = distSpeed(rng_) * sparkSpeed_;
+
+                s.x = baseX;
+                s.y = baseY;
+                s.vx = std::cos(angle) * speed;
+                s.vy = std::sin(angle) * speed;
+                s.life = 1.0f;
+                s.decay = distDecay(rng_);
+                s.r = groundR_;
+                s.g = groundG_;
+                s.b = groundB_;
+                s.size = sparkSize_ * distSize(rng_);
+                s.active = true;
+
+                created++;
+            }
+        }
+    }
+
     void drawParticle(std::vector<uint8_t>& frame, float x, float y, float size, 
                       float r, float g, float b, float alpha, float fadeMultiplier) {
         int cx = (int)x;
@@ -199,6 +244,11 @@ public:
           sparksVariance_(50), launchFrequency_(0.5f), launchRandomness_(0.5f),
           sparkSpeed_(5.0f), sparkSize_(2.0f), trailIntensity_(0.5f),
           horizontalDrift_(2.0f), nextLaunchTime_(0.0f),
+          groundFireEnabled_(false),
+          groundFireRate_(5.0f),
+          groundFireSparks_(80),
+          groundFireSpread_(3.14159265f / 3.0f),
+          groundR_(1.0f), groundG_(1.0f), groundB_(0.85f), // soft white/yellow
           rng_(std::random_device{}()) {}
     
     std::string getName() const override {
@@ -221,6 +271,17 @@ public:
         opts.push_back({"--size", "float", 0.5, 10.0, true, "Spark size", "2.0"});
         opts.push_back({"--trail", "float", 0.0, 1.0, true, "Rocket trail intensity", "0.5"});
         opts.push_back({"--drift", "float", 0.0, 10.0, true, "Horizontal drift of rocket trajectories", "2.0"});
+
+        // Additional options for Groundfire-like effect
+        opts.push_back({"--ground-fire", "bool", 0, 1, false,
+            "Enable ground fireworks (sparks shooting upward)", "false"});
+
+        opts.push_back({"--ground-fire-rate", "float", 0.1, 10.0, true,
+            "Ground fire bursts per second", "5.0"});
+
+        opts.push_back({"--ground-fire-color", "string", 0, 0, true,
+            "Ground fire color (white, yellow, or hex #RRGGBB)", "white"});
+
         return opts;
     }
     
@@ -254,11 +315,33 @@ public:
         } else if (arg == "--drift" && i + 1 < argc) {
             horizontalDrift_ = std::atof(argv[++i]);
             return true;
-        }
         
+        } else if (arg == "--ground-fire") {
+            groundFireEnabled_ = true;
+            return true;
+        } else if (arg == "--ground-fire-rate" && i + 1 < argc) {
+            groundFireRate_ = std::atof(argv[++i]);
+            return true;
+        } else if (arg == "--ground-fire-color" && i + 1 < argc) {
+            parseColor(argv[++i], groundR_, groundG_, groundB_);
+            return true;
+        }
         return false;
     }
     
+    void parseColor(const std::string& s, float& r, float& g, float& b) {
+        if (s == "white") {
+            r = g = b = 1.0f;
+        } else if (s == "yellow") {
+            r = 1.0f; g = 0.9f; b = 0.6f;
+        } else if (s.size() == 7 && s[0] == '#') {
+            r = std::stoi(s.substr(1,2), nullptr, 16) / 255.0f;
+            g = std::stoi(s.substr(3,2), nullptr, 16) / 255.0f;
+            b = std::stoi(s.substr(5,2), nullptr, 16) / 255.0f;
+        }
+    }
+
+
     bool initialize(int width, int height, int fps) override {
         width_ = width;
         height_ = height;
@@ -281,6 +364,7 @@ public:
         // Schedule first rocket
         std::uniform_real_distribution<float> distDelay(0.0f, 1.0f / launchFrequency_);
         nextLaunchTime_ = distDelay(rng_);
+        nextGroundFireTime_ = 0.0f;
         
         return true;
     }
@@ -361,6 +445,12 @@ public:
                     spark.active = false;
                 }
             }
+        }
+
+        // Emit ground fire if enabled
+        if (groundFireEnabled_ && time >= nextGroundFireTime_) {
+            emitGroundFire();
+            nextGroundFireTime_ = time + 1.0f / groundFireRate_;
         }
         
         frameCount_++;
