@@ -42,6 +42,8 @@ private:
     float horizontalDrift_;
     int sparksVariance_;
     float launchRandomness_;
+    float timeScale_;   // 1.0 = normal, 0.5 = half-speed, 2.0 = double-speed
+
 
     // For Groundfire-like effect
     bool groundFireEnabled_;
@@ -118,7 +120,11 @@ private:
     
     void explodeRocket(Rocket& r) {
         std::uniform_real_distribution<float> distAngle(0.0f, 2.0f * 3.14159265f);
-        std::uniform_real_distribution<float> distSpeed(0.5f, 1.5f);
+
+        // Randomly choose a speed distritbution per rocket, so some are more circular and some more spread out
+        float speedVariation = std::uniform_real_distribution<float>(0.02f, 0.9f)(rng_);
+
+        std::uniform_real_distribution<float> distSpeed(1.4f - speedVariation, 1.4f + speedVariation);
         std::uniform_real_distribution<float> distDecay(0.008f, 0.02f);
         std::uniform_real_distribution<float> distSize(0.5f, 1.5f);
         
@@ -240,10 +246,11 @@ private:
 public:
     FireworksEffect()
         : width_(1920), height_(1080), fps_(30), frameCount_(0),
-          gravity_(0.5f), maxRockets_(10), sparksPerRocket_(100),
+          gravity_(0.3f), maxRockets_(10), sparksPerRocket_(130),
           sparksVariance_(50), launchFrequency_(0.5f), launchRandomness_(0.5f),
           sparkSpeed_(5.0f), sparkSize_(2.0f), trailIntensity_(0.5f),
           horizontalDrift_(2.0f), nextLaunchTime_(0.0f),
+          timeScale_(1.0f),
           groundFireEnabled_(false),
           groundFireRate_(5.0f),
           groundFireSparks_(80),
@@ -264,13 +271,16 @@ public:
         std::vector<Opt> opts;
         opts.push_back({"--frequency", "float", 0.1, 5.0, true, "Rockets launched per second", "0.5"});
         opts.push_back({"--frequency-randomness", "float", 0.0, 1.0, true, "Randomness in launch timing (0=regular, 1=very random)", "0.5"});
-        opts.push_back({"--sparks", "int", 10, 500, true, "Average sparks per explosion", "100"});
+        opts.push_back({"--sparks", "int", 10, 500, true, "Average sparks per explosion", "130"});
         opts.push_back({"--sparks-variance", "int", 0, 200, true, "Variance in spark count per explosion", "50"});
-        opts.push_back({"--gravity", "float", 0.01, 1.0, true, "Gravity strength", "0.5"});
+        opts.push_back({"--gravity", "float", 0.01, 1.0, true, "Gravity strength", "0.3"});
         opts.push_back({"--speed", "float", 0.5, 10.0, true, "Spark speed multiplier", "5.0"});
         opts.push_back({"--size", "float", 0.5, 10.0, true, "Spark size", "2.0"});
         opts.push_back({"--trail", "float", 0.0, 1.0, true, "Rocket trail intensity", "0.5"});
         opts.push_back({"--drift", "float", 0.0, 10.0, true, "Horizontal drift of rocket trajectories", "2.0"});
+        opts.push_back({"--time-scale", "float", 0.1, 4.0, true,
+            "Overall simulation speed (1.0 = normal)", "1.0"});
+
 
         // Additional options for Groundfire-like effect
         opts.push_back({"--ground-fire", "bool", 0, 1, false,
@@ -315,7 +325,9 @@ public:
         } else if (arg == "--drift" && i + 1 < argc) {
             horizontalDrift_ = std::atof(argv[++i]);
             return true;
-        
+        } else if (arg == "--time-scale" && i + 1 < argc) {
+            timeScale_ = std::atof(argv[++i]);
+            return true;
         } else if (arg == "--ground-fire") {
             groundFireEnabled_ = true;
             return true;
@@ -404,7 +416,7 @@ public:
     }
     
     void update() override {
-        float dt = 1.0f / fps_;
+        float dt = (1.0f / fps_) * timeScale_;
         float time = frameCount_ * dt;
         
         // Launch new rockets
@@ -422,9 +434,9 @@ public:
         // Update rockets
         for (auto& rocket : rockets_) {
             if (rocket.active && !rocket.exploded) {
-                rocket.x += rocket.vx;
-                rocket.y += rocket.vy;
-                rocket.vy += gravity_;
+                rocket.x += rocket.vx * timeScale_;
+                rocket.y += rocket.vy * timeScale_;
+                rocket.vy += gravity_ * timeScale_;
                 
                 // Explode when reaching target height or starting to fall
                 if (rocket.y <= rocket.targetY || rocket.vy > 0) {
@@ -436,10 +448,10 @@ public:
         // Update sparks
         for (auto& spark : sparks_) {
             if (spark.active) {
-                spark.x += spark.vx;
-                spark.y += spark.vy;
-                spark.vy += gravity_;
-                spark.life -= spark.decay;
+                spark.x += spark.vx * timeScale_;
+                spark.y += spark.vy * timeScale_;
+                spark.vy += gravity_ * timeScale_;
+                spark.life -= spark.decay * timeScale_;
                 
                 if (spark.life <= 0.0f) {
                     spark.active = false;
