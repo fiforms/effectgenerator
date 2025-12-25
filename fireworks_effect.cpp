@@ -247,7 +247,7 @@ public:
     FireworksEffect()
         : width_(1920), height_(1080), fps_(30), frameCount_(0),
           gravity_(0.3f), maxRockets_(10), sparksPerRocket_(130),
-          sparksVariance_(50), launchFrequency_(0.5f), launchRandomness_(0.5f),
+          sparksVariance_(50), launchFrequency_(12.0f), launchRandomness_(0.5f),
           sparkSpeed_(5.0f), sparkSize_(2.0f), trailIntensity_(0.5f),
           horizontalDrift_(2.0f), nextLaunchTime_(0.0f),
           timeScale_(1.0f),
@@ -269,7 +269,7 @@ public:
     std::vector<Effect::EffectOption> getOptions() const override {
         using Opt = Effect::EffectOption;
         std::vector<Opt> opts;
-        opts.push_back({"--frequency", "float", 0.1, 5.0, true, "Rockets launched per second", "0.5"});
+        opts.push_back({"--frequency", "float", 0.1, 100.0, true, "Rockets launched per second", "12"});
         opts.push_back({"--frequency-randomness", "float", 0.0, 1.0, true, "Randomness in launch timing (0=regular, 1=very random)", "0.5"});
         opts.push_back({"--sparks", "int", 10, 500, true, "Average sparks per explosion", "130"});
         opts.push_back({"--sparks-variance", "int", 0, 200, true, "Variance in spark count per explosion", "50"});
@@ -283,7 +283,7 @@ public:
 
 
         // Additional options for Groundfire-like effect
-        opts.push_back({"--ground-fire", "bool", 0, 1, false,
+        opts.push_back({"--ground-fire", "boolean", 0, 1, false,
             "Enable ground fireworks (sparks shooting upward)", "false"});
 
         opts.push_back({"--ground-fire-rate", "float", 0.1, 10.0, true,
