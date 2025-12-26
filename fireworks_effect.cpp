@@ -16,6 +16,7 @@ struct Spark {
     float r, g, b;   // color
     float size;
     bool active;
+    float px, py; // previous position
 };
 
 struct Rocket {
@@ -51,6 +52,11 @@ private:
     int groundFireSparks_;          // sparks per burst
     float groundFireSpread_;        // radians, e.g. PI/3
     float groundR_, groundG_, groundB_;
+
+    std::vector<float> trailBuffer_; // RGB, float, size = width * height * 3
+    float trailDecay_;               // e.g. 0.92–0.98
+    float trailHalfLifeSec_ = 0.06f; // tweak 0.08–0.18
+
 
     
     
@@ -145,6 +151,8 @@ private:
                 
                 spark.x = r.x;
                 spark.y = r.y;
+                spark.px = spark.x;
+                spark.py = spark.y;
                 spark.vx = std::cos(angle) * speed + r.vx * 0.3f;
                 spark.vy = std::sin(angle) * speed + r.vy * 0.3f;
                 spark.life = 1.0f;
@@ -184,6 +192,8 @@ private:
 
                 s.x = baseX;
                 s.y = baseY;
+                s.px = s.x;
+                s.py = s.y;
                 s.vx = std::cos(angle) * speed;
                 s.vy = std::sin(angle) * speed;
                 s.life = 1.0f;
@@ -372,6 +382,11 @@ public:
         for (auto& s : sparks_) {
             s.active = false;
         }
+
+        // Initialize trail buffer
+        trailBuffer_.assign(width_ * height_ * 3, 0.0f);
+        float dt = 1.0f / fps_;
+        trailDecay_ = std::pow(0.5f, dt / trailHalfLifeSec_);
         
         // Schedule first rocket
         std::uniform_real_distribution<float> distDelay(0.0f, 1.0f / launchFrequency_);
@@ -382,14 +397,48 @@ public:
     }
     
     void renderFrame(std::vector<uint8_t>& frame, bool hasBackground, float fadeMultiplier) override {
-        // Draw sparks
+
+        // Apply trail effect
+        for (size_t i = 0; i < trailBuffer_.size(); ++i) {
+            trailBuffer_[i] *= trailDecay_;
+        }
+
+        // Draw sparks into trail buffer (velocity-weighted)
         for (const auto& spark : sparks_) {
-            if (spark.active) {
-                float alpha = spark.life;
-                drawParticle(frame, spark.x, spark.y, spark.size, 
-                           spark.r, spark.g, spark.b, alpha, fadeMultiplier);
+            if (!spark.active) continue;
+
+            float speed = std::sqrt(spark.vx * spark.vx + spark.vy * spark.vy);
+
+            float intensity =
+                spark.life *
+                std::clamp(speed * 0.2f, 0.2f, 1.0f) *
+                0.6f;
+
+            splatSegment(
+                spark.px, spark.py,
+                spark.x,  spark.y,
+                spark.r, spark.g, spark.b,
+                intensity,
+                spark.size
+            );
+
+        }
+
+        // Copy trail buffer to frame
+        for (int y = 0; y < height_; ++y) {
+            for (int x = 0; x < width_; ++x) {
+                int idx = (y * width_ + x) * 3;
+
+                float tr = trailBuffer_[idx + 0];
+                float tg = trailBuffer_[idx + 1];
+                float tb = trailBuffer_[idx + 2];
+
+                frame[idx + 0] = (uint8_t)(255 * std::clamp(tr, 0.0f, 1.0f));
+                frame[idx + 1] = (uint8_t)(255 * std::clamp(tg, 0.0f, 1.0f));
+                frame[idx + 2] = (uint8_t)(255 * std::clamp(tb, 0.0f, 1.0f));
             }
         }
+
         
         // Draw rockets and their trails
         for (const auto& rocket : rockets_) {
@@ -400,8 +449,8 @@ public:
                 
                 // Draw trail
                 if (trailIntensity_ > 0.0f) {
-                    float trailLength = 10.0f;
-                    int trailSteps = 8;
+                    float trailLength = 15.0f;
+                    int trailSteps = 24;
                     for (int i = 1; i <= trailSteps; i++) {
                         float t = (float)i / trailSteps;
                         float tx = rocket.x - rocket.vx * t * trailLength;
@@ -414,6 +463,127 @@ public:
             }
         }
     }
+
+    void accumulateTrail(float x, float y, float r, float g, float b, float intensity) {
+        int cx = (int)x;
+        int cy = (int)y;
+
+        if (cx < 0 || cx >= width_ || cy < 0 || cy >= height_) return;
+
+        int idx = (cy * width_ + cx) * 3;
+        trailBuffer_[idx + 0] += r * intensity;
+        trailBuffer_[idx + 1] += g * intensity;
+        trailBuffer_[idx + 2] += b * intensity;
+    }
+
+
+    // Splat a line segment into the trail buffer
+    void splatSegment(
+        float x0, float y0,
+        float x1, float y1,
+        float r, float g, float b,
+        float baseIntensity,
+        float headSize
+    ) {
+        float dx = x1 - x0;
+        float dy = y1 - y0;
+        float length = std::sqrt(dx * dx + dy * dy);
+
+        int steps = std::max(1, (int)std::ceil(length * 3.0f));
+
+        for (int i = 0; i <= steps; ++i) {
+            float t = (float)i / (float)steps;
+
+            float x = x0 + dx * t;
+            float y = y0 + dy * t;
+
+            // Tail → head shaping
+            float fade = t * t;                 // dim tail
+            float thickness = headSize * (0.25f + 0.75f * t);
+            thickness = std::max(1.0f, thickness); // prevents 1-pixel “beads”
+
+            float intensity = baseIntensity * fade;
+
+            // Radial splat
+            int cx = (int)std::floor(x);
+            int cy = (int)std::floor(y);
+            float fx = x - cx;
+            float fy = y - cy;
+
+            int radius = (int)(thickness + 1.0f);
+
+            for (int oy = -radius; oy <= radius; ++oy) {
+                for (int ox = -radius; ox <= radius; ++ox) {
+
+                    for (int sy = 0; sy <= 1; ++sy) {
+                        for (int sx = 0; sx <= 1; ++sx) {
+
+                            int px = cx + ox + sx;
+                            int py = cy + oy + sy;
+                            if (px < 0 || px >= width_ || py < 0 || py >= height_) continue;
+
+                            float wx = (sx == 0) ? (1.0f - fx) : fx;
+                            float wy = (sy == 0) ? (1.0f - fy) : fy;
+                            float w  = wx * wy;
+
+                            float dx = ox + sx - fx;
+                            float dy = oy + sy - fy;
+                            float dist = std::sqrt(dx * dx + dy * dy);
+                            if (dist > thickness) continue;
+
+                            float a = intensity * (1.0f - dist / thickness) * w;
+
+                            int idx = (py * width_ + px) * 3;
+                            trailBuffer_[idx + 0] += r * a;
+                            trailBuffer_[idx + 1] += g * a;
+                            trailBuffer_[idx + 2] += b * a;
+                        }
+                    }
+                }
+            }
+
+        }
+        // after the for(i...) loop finishes:
+        splatDiscToTrail(x1, y1, headSize, r, g, b, baseIntensity * 1.2f);
+
+    }
+
+
+    // Splat a disc shape into the trail buffer
+    void splatDiscToTrail(float x, float y, float size,
+                      float r, float g, float b, float intensity)
+    {
+        int cx = (int)x;
+        int cy = (int)y;
+        int radius = (int)(size + 1.5f);
+
+        for (int dy = -radius; dy <= radius; ++dy) {
+            for (int dx = -radius; dx <= radius; ++dx) {
+                int px = cx + dx;
+                int py = cy + dy;
+                if (px < 0 || px >= width_ || py < 0 || py >= height_) continue;
+
+                float dist = std::sqrt((float)(dx * dx + dy * dy));
+                float a = 0.0f;
+
+                if (dist < size) {
+                    a = 1.0f - (dist / size) * 0.3f;
+                } else if (dist < size + 1.5f) {
+                    float t = (dist - size) / 1.5f;
+                    a = (1.0f - t) * 0.8f;
+                }
+
+                a *= intensity;
+                if (a <= 0.0005f) continue;
+
+                int idx = (py * width_ + px) * 3;
+                trailBuffer_[idx + 0] += r * a;
+                trailBuffer_[idx + 1] += g * a;
+                trailBuffer_[idx + 2] += b * a;
+            }
+        }
+    }
+
     
     void update() override {
         float dt = (1.0f / fps_) * timeScale_;
@@ -448,8 +618,15 @@ public:
         // Update sparks
         for (auto& spark : sparks_) {
             if (spark.active) {
+                // Save previous position for trail drawing
+                spark.px = spark.x;
+                spark.py = spark.y;
+
+                // Calculate new position
                 spark.x += spark.vx * timeScale_;
                 spark.y += spark.vy * timeScale_;
+
+                // Apply gravity and decay
                 spark.vy += gravity_ * timeScale_;
                 spark.life -= spark.decay * timeScale_;
                 
