@@ -55,7 +55,7 @@ private:
 
     std::vector<float> trailBuffer_; // RGB, float, size = width * height * 3
     float trailDecay_;               // e.g. 0.92–0.98
-    float trailHalfLifeSec_ = 0.06f; // tweak 0.08–0.18
+    float trailHalfLifeSec_ = 0.05f; // tweak 0.08–0.18
 
 
     
@@ -489,7 +489,8 @@ public:
         float dy = y1 - y0;
         float length = std::sqrt(dx * dx + dy * dy);
 
-        int steps = std::max(1, (int)std::ceil(length * 3.0f));
+        //int steps = std::max(1, (int)std::ceil(length * 3.0f));
+        int steps = std::max(2, (int)std::ceil(length * 5.0f));
 
         for (int i = 0; i <= steps; ++i) {
             float t = (float)i / (float)steps;
@@ -498,8 +499,8 @@ public:
             float y = y0 + dy * t;
 
             // Tail → head shaping
-            float fade = t * t;                 // dim tail
-            float thickness = headSize * (0.25f + 0.75f * t);
+            float fade = 0.5f + t * 0.2f;                 // dim tail
+            float thickness = headSize * 0.5f + 0.1f * t; // (0.25f + 0.75f * t);
             thickness = std::max(1.0f, thickness); // prevents 1-pixel “beads”
 
             float intensity = baseIntensity * fade;
