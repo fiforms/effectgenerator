@@ -201,6 +201,7 @@ int main(int argc, char** argv) {
     int width = 1920, height = 1080, fps = 30, duration = -1; // -1 means auto-detect
     int crf = 23;
     float fadeDuration = 0.0f;
+    float maxFadeRatio = 1.0f;
     std::string output = "";
     bool overwriteOutput = false;
     std::string backgroundImage;
@@ -225,6 +226,8 @@ int main(int argc, char** argv) {
             duration = std::atoi(argv[++i]);
         } else if (arg == "--fade" && i + 1 < argc) {
             fadeDuration = std::atof(argv[++i]);
+        } else if (arg == "--max-fade" && i + 1 < argc) {
+            maxFadeRatio = std::atof(argv[++i]);
         } else if (arg == "--crf" && i + 1 < argc) {
             crf = std::atoi(argv[++i]);
         } else if (arg == "--audio-codec" && i + 1 < argc) {
@@ -282,7 +285,7 @@ int main(int argc, char** argv) {
     }
     
     // Create video generator (pass CLI CRF through)
-    VideoGenerator generator(width, height, fps, fadeDuration, crf, audioCodec, audioBitrate);
+    VideoGenerator generator(width, height, fps, fadeDuration, maxFadeRatio, crf, audioCodec, audioBitrate);
     
     // Set background if specified
     if (!backgroundImage.empty()) {
@@ -319,6 +322,7 @@ int main(int argc, char** argv) {
         std::cout << "Duration: " << duration << "s\n";
     }
     std::cout << "Fade duration: " << fadeDuration << "s\n";
+    std::cout << "Max Fade Ratio: " << maxFadeRatio << "\n";
     if (!backgroundImage.empty()) {
         std::cout << "Background image: " << backgroundImage << "\n";
     }

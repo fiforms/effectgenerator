@@ -56,8 +56,8 @@ std::string VideoGenerator::findFFmpeg(std::string binaryName) {
     return ""; // Not found
 }
 
-VideoGenerator::VideoGenerator(int width, int height, int fps, float fadeDuration, int crf, std::string audioCodec, std::string audioBitrate)
-    : width_(width), height_(height), fps_(fps), fadeDuration_(fadeDuration), crf_(crf), audioCodec_(audioCodec), audioBitrate_(audioBitrate),
+VideoGenerator::VideoGenerator(int width, int height, int fps, float fadeDuration, float maxFadeRatio, int crf, std::string audioCodec, std::string audioBitrate)
+    : width_(width), height_(height), fps_(fps), fadeDuration_(fadeDuration), maxFadeRatio_(maxFadeRatio), crf_(crf), audioCodec_(audioCodec), audioBitrate_(audioBitrate),
       hasBackground_(false), isVideo_(false), videoInput_(nullptr), ffmpegOutput_(nullptr) {
     frame_.resize(width * height * 3);
     ffmpegPath_ = findFFmpeg("ffmpeg");
@@ -242,16 +242,16 @@ bool VideoGenerator::startFFmpegOutput(const char* filename) {
 }
 
 float VideoGenerator::getFadeMultiplier(int frameNumber, int totalFrames) {
-    if (fadeDuration_ <= 0.0f) return 1.0f;
+    if (fadeDuration_ <= 0.0f) return maxFadeRatio_;
     
     int fadeFrames = (int)(fadeDuration_ * fps_);
     
     if (frameNumber < fadeFrames) {
-        return (float)frameNumber / fadeFrames;
+        return (float)frameNumber * maxFadeRatio_ / fadeFrames;
     } else if (frameNumber >= totalFrames - fadeFrames) {
-        return (float)(totalFrames - frameNumber) / fadeFrames;
+        return (float)(totalFrames - frameNumber) * maxFadeRatio_ / fadeFrames;
     }
-    return 1.0f;
+    return maxFadeRatio_;
 }
 
 bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outputFile) {

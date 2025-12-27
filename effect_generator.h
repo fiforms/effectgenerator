@@ -147,6 +147,7 @@ class VideoGenerator {
 private:
     int width_, height_, fps_;
     float fadeDuration_;
+    float maxFadeRatio_;
     std::string backgroundImage_;
     std::string backgroundVideo_;
     std::string ffmpegPath_;
@@ -171,7 +172,7 @@ private:
     float getFadeMultiplier(int frameNumber, int totalFrames);
     
 public:
-    VideoGenerator(int width, int height, int fps, float fadeDuration, int crf = 23, std::string audioCodec = "", std::string audioBitrate = "");
+    VideoGenerator(int width, int height, int fps, float fadeDuration, float maxFadeRatio, int crf = 23, std::string audioCodec = "", std::string audioBitrate = "");
     ~VideoGenerator();
     
     void setFFmpegPath(const std::string& path) { ffmpegPath_ = path; }
