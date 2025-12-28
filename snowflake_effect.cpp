@@ -440,7 +440,10 @@ public:
             // advance per-flake lifetime (avoid divide by zero fps)
             if (fps_ > 0) f.timeAlive += 1.0f / (float)fps_;
             
-            if (f.y > height_ + f.radius + softness_) {
+            if (f.y > height_ + f.radius + softness_ || 
+                f.y < -(f.radius + softness_) ||
+                f.x < -(f.radius + softness_) || 
+                f.x > width_ + f.radius + softness_) {
                 resetFlake(f);
             }
             // If a flake has exceeded its timeout plus fade duration, respawn it
