@@ -13,7 +13,7 @@
 
 // Program version. Can be overridden at compile time with -DEFFECTGENERATOR_VERSION="\"x.y.z\""
 #ifndef EFFECTGENERATOR_VERSION
-#define EFFECTGENERATOR_VERSION "0.0.2git"
+#define EFFECTGENERATOR_VERSION "0.1.0"
 #endif
 
 inline const char* getEffectGeneratorVersion() {
