@@ -43,6 +43,7 @@ void printUsage(const char* prog) {
     std::cout << "  --fps <int>               Frames per second (default: 30)\n";
     std::cout << "  --duration <int>          Duration in seconds (default: 5)\n";
     std::cout << "  --fade <float>            Fade in/out duration in seconds (default: 0.0)\n";
+    std::cout << "  --max-fade <float>        Maximum opacity (0.0-1.0) of effect (default: 1.0)\n";
     std::cout << "  --background-image <path> Background image (JPG/PNG)\n";
     std::cout << "  --background-video <path> Background video (MP4/MOV/etc)\n";
     std::cout << "  --crf <int>               Output video quality (default: 23, lower is better)\n\n";
