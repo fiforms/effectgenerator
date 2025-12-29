@@ -1,0 +1,26 @@
+name: macOS Universal Build
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-macos-universal:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build universal binary
+        run: |
+          chmod +x scripts/build-macos-universal.sh
+          scripts/build-macos-universal.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: effectgenerator-macos-universal
+          path: build/macos-universal/effectgenerator
+          if-no-files-found: error
