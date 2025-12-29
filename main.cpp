@@ -8,7 +8,8 @@
 #include <sstream>
 #include <cstdlib>
 
-void printHelp(auto opts) {
+template <typename Options>
+void printHelp(const Options& opts) {
     // Generate textual help formatted from structured options
     std::cout << "Effect Options:\n";
     for (const auto &o : opts) {

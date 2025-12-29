@@ -8,6 +8,10 @@
 #include <iostream>
 #include <vector>
 
+namespace {
+constexpr float kPi = 3.14159265358979323846f;
+}
+
 struct Ray {
     float angle;          // Center angle of the ray in radians
     float width;          // Angular width of the ray
@@ -44,7 +48,7 @@ private:
     float globalRotation_;
     
     void initRays() {
-        std::uniform_real_distribution<float> distAngle(0.0f, 2.0f * M_PI);
+        std::uniform_real_distribution<float> distAngle(0.0f, 2.0f * kPi);
         std::normal_distribution<float> distWidth(rayWidth_, rayWidthVar_);
         std::uniform_real_distribution<float> distIntensity(baseIntensity_ * 0.5f, baseIntensity_);
         
@@ -66,7 +70,7 @@ private:
     }
     
     void updateRays() {
-        std::uniform_real_distribution<float> distAngle(0.0f, 2.0f * M_PI);
+        std::uniform_real_distribution<float> distAngle(0.0f, 2.0f * kPi);
         std::normal_distribution<float> distWidth(rayWidth_, rayWidthVar_);
         std::uniform_real_distribution<float> distIntensity(baseIntensity_ * 0.5f, baseIntensity_);
         
@@ -74,16 +78,16 @@ private:
             // Morph towards target
             float angleError = r.targetAngle - r.angle;
             // Handle wrap-around
-            while (angleError > M_PI) angleError -= 2.0f * M_PI;
-            while (angleError < -M_PI) angleError += 2.0f * M_PI;
+            while (angleError > kPi) angleError -= 2.0f * kPi;
+            while (angleError < -kPi) angleError += 2.0f * kPi;
             
             r.angle += angleError * r.morphSpeed;
             r.width += (r.targetWidth - r.width) * r.morphSpeed;
             r.intensity += (r.targetIntensity - r.intensity) * r.morphSpeed;
             
             // Normalize angle
-            while (r.angle > 2.0f * M_PI) r.angle -= 2.0f * M_PI;
-            while (r.angle < 0.0f) r.angle += 2.0f * M_PI;
+            while (r.angle > 2.0f * kPi) r.angle -= 2.0f * kPi;
+            while (r.angle < 0.0f) r.angle += 2.0f * kPi;
             
             // Check if close to target, set new target
             if (std::abs(angleError) < 0.1f && 
@@ -97,7 +101,7 @@ private:
         
         // Apply global rotation
         globalRotation_ += rotationSpeed_ / fps_;
-        while (globalRotation_ > 2.0f * M_PI) globalRotation_ -= 2.0f * M_PI;
+        while (globalRotation_ > 2.0f * kPi) globalRotation_ -= 2.0f * kPi;
     }
     
     void updateFocalPoint() {
@@ -125,20 +129,20 @@ private:
     
     float getRayIntensity(float angle, float distance) {
         // Normalize angle
-        while (angle > 2.0f * M_PI) angle -= 2.0f * M_PI;
-        while (angle < 0.0f) angle += 2.0f * M_PI;
+        while (angle > 2.0f * kPi) angle -= 2.0f * kPi;
+        while (angle < 0.0f) angle += 2.0f * kPi;
         
         // Apply global rotation
         angle += globalRotation_;
-        while (angle > 2.0f * M_PI) angle -= 2.0f * M_PI;
+        while (angle > 2.0f * kPi) angle -= 2.0f * kPi;
         
         float maxIntensity = 0.0f;
         
         for (const auto& r : rays_) {
             float angleDiff = angle - r.angle;
             // Handle wrap-around
-            while (angleDiff > M_PI) angleDiff -= 2.0f * M_PI;
-            while (angleDiff < -M_PI) angleDiff += 2.0f * M_PI;
+            while (angleDiff > kPi) angleDiff -= 2.0f * kPi;
+            while (angleDiff < -kPi) angleDiff += 2.0f * kPi;
             
             float absAngleDiff = std::abs(angleDiff);
             

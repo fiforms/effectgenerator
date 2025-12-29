@@ -8,6 +8,10 @@
 #include <iostream>
 #include <vector>
 
+namespace {
+constexpr float kPi = 3.14159265358979323846f;
+}
+
 struct WaveSource {
     float x, y;           // Position
     float phase;          // Current phase
@@ -330,7 +334,7 @@ public:
         WaveEffect()
         : numSources_(3), baseAmplitude_(0.3f), baseFrequency_(0.02f),
           baseSpeed_(2.0f), baseDecay_(0.001f),
-          lightAngle_(-M_PI / 4.0f), lightIntensity_(0.3f), waveInterference_(1.0f),
+          lightAngle_(-kPi / 4.0f), lightIntensity_(0.3f), waveInterference_(1.0f),
                     displacementScale_(10.0f), useDisplacement_(true), waveDirection_(""),
           sourceSpawnProb_(0.06f), offscreenProb_(0.5f),
                     minLifetime_(2.0f), maxLifetime_(8.0f),
@@ -386,7 +390,7 @@ public:
             return true;
         } else if (arg == "--light-angle" && i + 1 < argc) {
             float degrees = std::atof(argv[++i]);
-            lightAngle_ = degrees * M_PI / 180.0f;
+            lightAngle_ = degrees * kPi / 180.0f;
             return true;
         } else if (arg == "--light-intensity" && i + 1 < argc) {
             lightIntensity_ = std::atof(argv[++i]);
@@ -493,10 +497,10 @@ public:
         std::cout << "Wave effect initialized with " << numSources_ << " initial sources\n";
         if (useDisplacement_) {
             std::cout << "Using displacement + brightness mode with scale: " << displacementScale_ << " pixels\n";
-            std::cout << "Light angle: " << (lightAngle_ * 180.0f / M_PI) << " degrees\n";
+            std::cout << "Light angle: " << (lightAngle_ * 180.0f / kPi) << " degrees\n";
         } else {
             std::cout << "Using brightness modulation only mode\n";
-            std::cout << "Light angle: " << (lightAngle_ * 180.0f / M_PI) << " degrees\n";
+            std::cout << "Light angle: " << (lightAngle_ * 180.0f / kPi) << " degrees\n";
         }
         // Optional warmup: pre-simulate the system for a number of seconds to stabilize
         if (warmupSeconds_ > 0.0f && warmupFrames_ > 0) {
