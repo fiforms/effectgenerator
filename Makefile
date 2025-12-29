@@ -6,6 +6,7 @@ CXX = g++
 
 # Compiler flags
 CXXFLAGS = -std=c++17 -O3 -Wall -Wextra
+STATIC_LDFLAGS = -static -static-libgcc -static-libstdc++
 
 # Detect OS
 ifeq ($(OS),Windows_NT)
@@ -88,6 +89,7 @@ help:
 	@echo "  make windows  - Cross-compile for Windows (MinGW-w64)"
 	@echo "  make windows-static - Cross-compile for Windows (static runtime)"
 	@echo "  make windows-dlls - Copy MinGW runtime DLLs next to the .exe"
+	@echo "  make static   - Build Linux static binary (x64)"
 	@echo "  make clean    - Remove build artifacts"
 	@echo "  make install  - Install to /usr/local/bin (Linux/macOS)"
 	@echo "  make uninstall- Uninstall from /usr/local/bin (Linux/macOS)"
@@ -102,7 +104,7 @@ help:
 	@echo "  ./$(TARGET) --list-effects"
 	@echo "  ./$(TARGET) --effect snowflake --flakes 200"
 
-.PHONY: all clean install uninstall help windows windows-static windows-dlls
+.PHONY: all clean install uninstall help windows windows-static windows-dlls static
 
 # Cross-compile target (Linux/macOS host)
 windows: CXX = $(WINDOWS_CXX)
@@ -120,3 +122,8 @@ windows-static: $(TARGET)
 windows-dlls: CXX = $(WINDOWS_CXX)
 windows-dlls:
 	@$(foreach dll,$(WINDOWS_DLLS),$(call copy_dll,$(dll));)
+
+# Build a static Linux binary (best effort; may require static libs installed)
+static: TARGET = effectgenerator-static
+static: LDFLAGS = $(STATIC_LDFLAGS)
+static: $(TARGET)
