@@ -424,18 +424,29 @@ public:
 
         }
 
-        // Copy trail buffer to frame
+        // Composite trail buffer onto the frame, preserving background when present.
+        float trailScale = hasBackground ? fadeMultiplier : 1.0f;
         for (int y = 0; y < height_; ++y) {
             for (int x = 0; x < width_; ++x) {
                 int idx = (y * width_ + x) * 3;
 
-                float tr = trailBuffer_[idx + 0];
-                float tg = trailBuffer_[idx + 1];
-                float tb = trailBuffer_[idx + 2];
+                float tr = trailBuffer_[idx + 0] * trailScale;
+                float tg = trailBuffer_[idx + 1] * trailScale;
+                float tb = trailBuffer_[idx + 2] * trailScale;
 
-                frame[idx + 0] = (uint8_t)(255 * std::clamp(tr, 0.0f, 1.0f));
-                frame[idx + 1] = (uint8_t)(255 * std::clamp(tg, 0.0f, 1.0f));
-                frame[idx + 2] = (uint8_t)(255 * std::clamp(tb, 0.0f, 1.0f));
+                if (hasBackground) {
+                    float currentR = frame[idx + 0] / 255.0f;
+                    float currentG = frame[idx + 1] / 255.0f;
+                    float currentB = frame[idx + 2] / 255.0f;
+
+                    frame[idx + 0] = (uint8_t)(255 * std::min(1.0f, currentR + tr));
+                    frame[idx + 1] = (uint8_t)(255 * std::min(1.0f, currentG + tg));
+                    frame[idx + 2] = (uint8_t)(255 * std::min(1.0f, currentB + tb));
+                } else {
+                    frame[idx + 0] = (uint8_t)(255 * std::clamp(tr, 0.0f, 1.0f));
+                    frame[idx + 1] = (uint8_t)(255 * std::clamp(tg, 0.0f, 1.0f));
+                    frame[idx + 2] = (uint8_t)(255 * std::clamp(tb, 0.0f, 1.0f));
+                }
             }
         }
 
