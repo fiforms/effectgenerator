@@ -44,6 +44,7 @@ private:
     int sparksVariance_;
     float launchRandomness_;
     float timeScale_;   // 1.0 = normal, 0.5 = half-speed, 2.0 = double-speed
+    int expectedTotalFrames_;
 
 
     // For Groundfire-like effect
@@ -261,6 +262,7 @@ public:
           sparkSpeed_(5.0f), sparkSize_(2.0f), trailIntensity_(0.5f),
           horizontalDrift_(2.0f), nextLaunchTime_(0.0f),
           timeScale_(1.0f),
+          expectedTotalFrames_(-1),
           groundFireEnabled_(false),
           groundFireRate_(5.0f),
           groundFireSparks_(80),
@@ -396,6 +398,16 @@ public:
         return true;
     }
     
+    void postProcess(std::vector<uint8_t>& frame, int frameIndex, int totalFrames, bool& dropFrame) override {
+
+        // Store total frames on first call
+        if (expectedTotalFrames_ == -1) {
+            expectedTotalFrames_ = totalFrames;
+            std::cout << "Total frames: " << totalFrames << "\n";
+        }
+
+    }
+
     void renderFrame(std::vector<uint8_t>& frame, bool hasBackground, float fadeMultiplier) override {
 
         // Apply trail effect
@@ -602,7 +614,7 @@ public:
         float time = frameCount_ * dt;
         
         // Launch new rockets
-        if (time >= nextLaunchTime_) {
+        if (time >= nextLaunchTime_ && frameCount_ < (expectedTotalFrames_ - (6.0f * (float)fps_ * timeScale_))) {
             launchRocket();
             // Add randomness to launch interval
             float baseInterval = 1.0f / launchFrequency_;
