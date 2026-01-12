@@ -270,7 +270,7 @@ int main(int argc, char** argv) {
     if (!overwriteOutput) {
       if(FILE* file = std::fopen(output.c_str(), "rb")) {
         std::fclose(file);
-        std::cerr << "Error: Output file '" << output << "' already exists. Please choose a different name.\n";
+        std::cerr << "Error: Output file '" << output << "' already exists. Please choose a different name or pass --overwrite.\n";
         return 1;
       }
     }
