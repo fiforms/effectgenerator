@@ -11,6 +11,8 @@ struct Sparkle {
     float x, y;
     float size;
     float baseIntensity;
+    float intensity;
+    float targetIntensity;
     float phase;
     float r, g, b;
     bool isStar;
@@ -36,6 +38,8 @@ private:
     float rotationSpeedDeg_;
     float twinkleSpeed_;
     float intensityScale_;
+    float fadeInSec_;
+    float fadeOutSec_;
 
     std::vector<float> luma_;
     std::vector<float> gradient_;
@@ -181,6 +185,8 @@ private:
         s.y = (float)hs.y;
         s.size = (s.isStar ? starSize_ : spotSize_) * sizeJit(rng_);
         s.baseIntensity = (maxScore > 0.0f) ? clamp01(hs.score / maxScore) : 0.85f;
+        s.intensity = 0.0f;
+        s.targetIntensity = s.baseIntensity;
         s.phase = phaseDist(rng_);
         float tint = tintDist(rng_);
         s.r = clamp01(1.0f + tint);
@@ -198,6 +204,8 @@ private:
         s.y = posY(rng_);
         s.size = (s.isStar ? starSize_ : spotSize_) * sizeJit(rng_);
         s.baseIntensity = 0.7f;
+        s.intensity = 0.0f;
+        s.targetIntensity = s.baseIntensity;
         s.phase = phaseDist(rng_);
         float tint = tintDist(rng_);
         s.r = clamp01(1.0f + tint);
@@ -228,9 +236,10 @@ public:
         : width_(0), height_(0), fps_(30), frameCount_(0),
           numSparkles_(120), maxHotspots_(400), edgeThreshold_(80.0f),
           trackingRadius_(10.0f), nmsRadius_(6.0f),
-          spotSize_(1.8f), starSize_(3.2f), starFraction_(0.35f),
+          spotSize_(3.8f), starSize_(12.2f), starFraction_(0.35f),
           rotationSpeedDeg_(25.0f), twinkleSpeed_(1.6f),
-          intensityScale_(1.0f), rng_(std::random_device{}()) {}
+          intensityScale_(1.0f), fadeInSec_(0.6f), fadeOutSec_(1.2f),
+          rng_(std::random_device{}()) {}
 
     std::string getName() const override { return "sparkle"; }
     std::string getDescription() const override { return "Edge-aware sparkles that follow moving edges and corners"; }
@@ -243,12 +252,14 @@ public:
         opts.push_back({"--edge-threshold", "float", 0.0, 10000.0, true, "Edge detection threshold", "80"});
         opts.push_back({"--track-radius", "float", 0.0, 10000.0, true, "Max distance to lock onto a moving edge (pixels)", "10"});
         opts.push_back({"--nms-radius", "float", 0.0, 10000.0, true, "Hotspot separation radius (pixels)", "6"});
-        opts.push_back({"--spot-size", "float", 0.1, 10000.0, true, "Soft spot sparkle radius", "1.8"});
-        opts.push_back({"--star-size", "float", 0.1, 10000.0, true, "4-point star sparkle size", "3.2"});
+        opts.push_back({"--spot-size", "float", 0.1, 10000.0, true, "Soft spot sparkle radius", "3.8"});
+        opts.push_back({"--star-size", "float", 0.1, 10000.0, true, "4-point star sparkle size", "12.2"});
         opts.push_back({"--star-fraction", "float", 0.0, 1.0, true, "Fraction of sparkles that are stars", "0.35"});
         opts.push_back({"--rotation-speed", "float", -10000.0, 10000.0, true, "Star rotation speed (deg/sec)", "25"});
         opts.push_back({"--twinkle-speed", "float", 0.0, 10000.0, true, "Twinkle speed (cycles/sec)", "1.6"});
         opts.push_back({"--intensity", "float", 0.0, 100.0, true, "Sparkle intensity multiplier", "1.0"});
+        opts.push_back({"--fade-in", "float", 0.0, 1000.0, true, "Seconds to fade sparkles in", "0.6"});
+        opts.push_back({"--fade-out", "float", 0.0, 1000.0, true, "Seconds to fade sparkles out", "1.2"});
         return opts;
     }
 
@@ -288,6 +299,12 @@ public:
             return true;
         } else if (arg == "--intensity" && i + 1 < argc) {
             intensityScale_ = std::atof(argv[++i]);
+            return true;
+        } else if (arg == "--fade-in" && i + 1 < argc) {
+            fadeInSec_ = std::max(0.0f, (float)std::atof(argv[++i]));
+            return true;
+        } else if (arg == "--fade-out" && i + 1 < argc) {
+            fadeOutSec_ = std::max(0.0f, (float)std::atof(argv[++i]));
             return true;
         }
         return false;
@@ -332,6 +349,7 @@ public:
                     s.x = (float)hotspots[best].x;
                     s.y = (float)hotspots[best].y;
                     s.baseIntensity = (maxScore > 0.0f) ? clamp01(hotspots[best].score / maxScore) : s.baseIntensity;
+                    s.targetIntensity = s.baseIntensity;
                 } else {
                     int fallback = -1;
                     for (size_t h = 0; h < hotspots.size(); ++h) {
@@ -342,8 +360,15 @@ public:
                         s.x = (float)hotspots[fallback].x;
                         s.y = (float)hotspots[fallback].y;
                         s.baseIntensity = (maxScore > 0.0f) ? clamp01(hotspots[fallback].score / maxScore) : s.baseIntensity;
+                        s.targetIntensity = s.baseIntensity;
+                    } else {
+                        s.targetIntensity = 0.0f;
                     }
                 }
+            }
+        } else {
+            for (auto& s : sparkles_) {
+                s.targetIntensity = 0.0f;
             }
         }
 
@@ -351,7 +376,7 @@ public:
         float fade = fadeMultiplier * intensityScale_;
         for (const auto& s : sparkles_) {
             float twinkle = 0.55f + 0.45f * std::sin(s.phase);
-            float opacity = clamp01(s.baseIntensity * twinkle) * fade;
+            float opacity = clamp01(s.intensity * twinkle) * fade;
             if (opacity <= 0.001f) continue;
             if (s.isStar) {
                 drawStar4(frame, s.x, s.y, s.size, angle, opacity, s.r, s.g, s.b);
@@ -364,9 +389,17 @@ public:
     void update() override {
         frameCount_++;
         float phaseStep = (twinkleSpeed_ * 2.0f * kPi) / std::max(1, fps_);
+        float dt = 1.0f / std::max(1, fps_);
+        float inStep = (fadeInSec_ > 0.0f) ? (dt / fadeInSec_) : 1.0f;
+        float outStep = (fadeOutSec_ > 0.0f) ? (dt / fadeOutSec_) : 1.0f;
         for (auto& s : sparkles_) {
             s.phase += phaseStep;
             if (s.phase > 1000.0f) s.phase -= 1000.0f;
+            if (s.intensity < s.targetIntensity) {
+                s.intensity = std::min(s.targetIntensity, s.intensity + inStep);
+            } else if (s.intensity > s.targetIntensity) {
+                s.intensity = std::max(s.targetIntensity, s.intensity - outStep);
+            }
         }
     }
 };
