@@ -40,6 +40,8 @@ private:
     float intensityScale_;
     float fadeInSec_;
     float fadeOutSec_;
+    float brightThreshold_;
+    float brightBias_;
 
     std::vector<float> luma_;
     std::vector<float> gradient_;
@@ -109,13 +111,17 @@ private:
         if (width_ < 3 || height_ < 3) return;
 
         luma_.assign(width_ * height_, 0.0f);
+        std::vector<uint8_t> brightMask(width_ * height_, 0);
         for (int y = 0; y < height_; ++y) {
             for (int x = 0; x < width_; ++x) {
                 int idx = (y * width_ + x) * 3;
                 float r = frame[idx + 0];
                 float g = frame[idx + 1];
                 float b = frame[idx + 2];
-                luma_[y * width_ + x] = 0.299f * r + 0.587f * g + 0.114f * b;
+                float lum = 0.299f * r + 0.587f * g + 0.114f * b;
+                int li = y * width_ + x;
+                luma_[li] = lum;
+                brightMask[li] = (lum >= brightThreshold_) ? 1 : 0;
             }
         }
 
@@ -143,6 +149,22 @@ private:
                     cornerness = std::min(absGx, absGy) / std::max(absGx, absGy);
                 }
                 float score = mag * (0.7f + 0.6f * cornerness);
+                if (brightBias_ > 0.0f) {
+                    bool nearBright = false;
+                    for (int oy = -1; oy <= 1 && !nearBright; ++oy) {
+                        for (int ox = -1; ox <= 1; ++ox) {
+                            if (brightMask[(y + oy) * width_ + (x + ox)]) {
+                                nearBright = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (nearBright) {
+                        score *= (1.0f + brightBias_);
+                    } else {
+                        score *= std::max(0.0f, 1.0f - 0.35f * brightBias_);
+                    }
+                }
                 gradient_[idx] = score;
                 if (score > maxScore) maxScore = score;
             }
@@ -239,6 +261,7 @@ public:
           spotSize_(3.8f), starSize_(12.2f), starFraction_(0.35f),
           rotationSpeedDeg_(25.0f), twinkleSpeed_(1.6f),
           intensityScale_(1.0f), fadeInSec_(0.6f), fadeOutSec_(1.2f),
+          brightThreshold_(235.0f), brightBias_(0.8f),
           rng_(std::random_device{}()) {}
 
     std::string getName() const override { return "sparkle"; }
@@ -260,6 +283,8 @@ public:
         opts.push_back({"--intensity", "float", 0.0, 100.0, true, "Sparkle intensity multiplier", "1.0"});
         opts.push_back({"--fade-in", "float", 0.0, 1000.0, true, "Seconds to fade sparkles in", "0.6"});
         opts.push_back({"--fade-out", "float", 0.0, 1000.0, true, "Seconds to fade sparkles out", "1.2"});
+        opts.push_back({"--bright-threshold", "float", 0.0, 255.0, true, "Luma threshold for bright-edge bias", "235"});
+        opts.push_back({"--bright-bias", "float", 0.0, 10.0, true, "Bias strength favoring edges near bright pixels", "0.8"});
         return opts;
     }
 
@@ -305,6 +330,12 @@ public:
             return true;
         } else if (arg == "--fade-out" && i + 1 < argc) {
             fadeOutSec_ = std::max(0.0f, (float)std::atof(argv[++i]));
+            return true;
+        } else if (arg == "--bright-threshold" && i + 1 < argc) {
+            brightThreshold_ = std::clamp((float)std::atof(argv[++i]), 0.0f, 255.0f);
+            return true;
+        } else if (arg == "--bright-bias" && i + 1 < argc) {
+            brightBias_ = std::max(0.0f, (float)std::atof(argv[++i]));
             return true;
         }
         return false;
