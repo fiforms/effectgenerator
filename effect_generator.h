@@ -11,6 +11,12 @@
 #include <cstdio>
 #include <cstdint>
 
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <sys/types.h>
+#endif
+
 // Program version. Can be overridden at compile time with -DEFFECTGENERATOR_VERSION="\"x.y.z\""
 #ifndef EFFECTGENERATOR_VERSION
 #define EFFECTGENERATOR_VERSION "0.1.2"
@@ -159,8 +165,19 @@ private:
     std::vector<uint8_t> backgroundBuffer_;
     bool hasBackground_;
     bool isVideo_;
-    FILE* videoInput_;
-    FILE* ffmpegOutput_;
+    struct ProcessPipe {
+        FILE* stream = nullptr;
+#ifdef _WIN32
+        PROCESS_INFORMATION proc{};
+#else
+        pid_t pid = -1;
+#endif
+    };
+    ProcessPipe videoInput_;
+    ProcessPipe ffmpegOutput_;
+
+    static ProcessPipe spawnProcessPipe(const std::vector<std::string>& args, const char* mode, bool quiet);
+    static void closeProcessPipe(ProcessPipe& proc);
     
     std::string findFFmpeg(std::string binaryName);
     bool loadBackgroundImage(const char* filename);

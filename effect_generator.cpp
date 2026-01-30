@@ -9,6 +9,16 @@
 #include <cmath>
 #include <algorithm>
 #include <cctype>
+#include <sstream>
+#include <vector>
+
+#ifdef _WIN32
+    #include <io.h>
+    #include <fcntl.h>
+#else
+    #include <sys/wait.h>
+    #include <fcntl.h>
+#endif
 
 #ifdef _WIN32
     #include <windows.h>
@@ -16,19 +26,298 @@
     #include <unistd.h>
 #endif
 
+std::string trimQuotes(const std::string& value) {
+    if (value.size() >= 2) {
+        char first = value.front();
+        char last = value.back();
+        if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+            return value.substr(1, value.size() - 2);
+        }
+    }
+    return value;
+}
+
+bool fileExists(const std::string& path) {
+#ifdef _WIN32
+    DWORD attrs = GetFileAttributesA(path.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES) return false;
+    return (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
+#else
+    return access(path.c_str(), X_OK) == 0;
+#endif
+}
+
+std::string joinPath(const std::string& dir, const std::string& leaf) {
+    if (dir.empty()) return leaf;
+    char back = dir.back();
+    if (back == '/' || back == '\\') return dir + leaf;
+    return dir + PATH_SEPARATOR + leaf;
+}
+
+std::string findInPath(const std::string& exeName) {
+    const char* pathEnv = std::getenv("PATH");
+    if (!pathEnv || pathEnv[0] == '\0') return "";
+    const char separator =
+#ifdef _WIN32
+        ';';
+#else
+        ':';
+#endif
+    std::string paths(pathEnv);
+    std::stringstream ss(paths);
+    std::string segment;
+    while (std::getline(ss, segment, separator)) {
+        std::string dir = trimQuotes(segment);
+        if (dir.empty()) continue;
+        std::string candidate = joinPath(dir, exeName);
+        if (fileExists(candidate)) return candidate;
+    }
+    return "";
+}
+
+#ifdef _WIN32
+bool hasExeSuffix(const std::string& name) {
+    if (name.size() < 4) return false;
+    std::string tail = name.substr(name.size() - 4);
+    std::transform(tail.begin(), tail.end(), tail.begin(), [](unsigned char c){ return (char)std::tolower(c); });
+    return tail == ".exe";
+}
+#endif
+
+#ifdef _WIN32
+std::string escapeWindowsArg(const std::string& arg) {
+    bool needsQuotes = arg.empty();
+    for (char c : arg) {
+        if (c == ' ' || c == '\t' || c == '"') {
+            needsQuotes = true;
+            break;
+        }
+    }
+    if (!needsQuotes) return arg;
+    std::string out;
+    out.push_back('"');
+    size_t i = 0;
+    while (i < arg.size()) {
+        size_t backslashes = 0;
+        while (i < arg.size() && arg[i] == '\\') {
+            backslashes++;
+            i++;
+        }
+        if (i == arg.size()) {
+            out.append(backslashes * 2, '\\');
+            break;
+        }
+        if (arg[i] == '"') {
+            out.append(backslashes * 2 + 1, '\\');
+            out.push_back('"');
+        } else {
+            out.append(backslashes, '\\');
+            out.push_back(arg[i]);
+        }
+        i++;
+    }
+    out.push_back('"');
+    return out;
+}
+
+std::string buildCommandLine(const std::vector<std::string>& args) {
+    std::string cmd;
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (i) cmd.push_back(' ');
+        cmd += escapeWindowsArg(args[i]);
+    }
+    return cmd;
+}
+#endif
+
+VideoGenerator::ProcessPipe VideoGenerator::spawnProcessPipe(const std::vector<std::string>& args, const char* mode, bool quiet) {
+    VideoGenerator::ProcessPipe result;
+    if (args.empty() || !mode) return result;
+    bool readMode = mode[0] == 'r';
+    bool writeMode = mode[0] == 'w';
+    if (!readMode && !writeMode) return result;
+
+#ifdef _WIN32
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+
+    HANDLE childStdoutRead = NULL;
+    HANDLE childStdoutWrite = NULL;
+    HANDLE childStdinRead = NULL;
+    HANDLE childStdinWrite = NULL;
+
+    if (readMode) {
+        if (!CreatePipe(&childStdoutRead, &childStdoutWrite, &sa, 0)) return result;
+        SetHandleInformation(childStdoutRead, HANDLE_FLAG_INHERIT, 0);
+    } else {
+        if (!CreatePipe(&childStdinRead, &childStdinWrite, &sa, 0)) return result;
+        SetHandleInformation(childStdinWrite, HANDLE_FLAG_INHERIT, 0);
+    }
+
+    HANDLE hNullRead = CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE hNullWrite = CreateFileA("NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = readMode ? hNullRead : childStdinRead;
+    si.hStdOutput = readMode ? childStdoutWrite : hNullWrite;
+    si.hStdError = quiet ? hNullWrite : si.hStdOutput;
+
+    PROCESS_INFORMATION pi{};
+    std::string cmdLine = buildCommandLine(args);
+    std::vector<char> cmdBuf(cmdLine.begin(), cmdLine.end());
+    cmdBuf.push_back('\0');
+
+    BOOL created = CreateProcessA(
+        NULL,
+        cmdBuf.data(),
+        NULL,
+        NULL,
+        TRUE,
+        CREATE_NO_WINDOW,
+        NULL,
+        NULL,
+        &si,
+        &pi
+    );
+
+    if (readMode && childStdoutWrite) CloseHandle(childStdoutWrite);
+    if (writeMode && childStdinRead) CloseHandle(childStdinRead);
+    if (hNullRead) CloseHandle(hNullRead);
+    if (hNullWrite) CloseHandle(hNullWrite);
+
+    if (!created) {
+        if (readMode && childStdoutRead) CloseHandle(childStdoutRead);
+        if (writeMode && childStdinWrite) CloseHandle(childStdinWrite);
+        return result;
+    }
+
+    int fd = -1;
+    if (readMode) {
+        fd = _open_osfhandle((intptr_t)childStdoutRead, _O_RDONLY);
+    } else {
+        fd = _open_osfhandle((intptr_t)childStdinWrite, 0);
+    }
+    if (fd == -1) {
+        if (readMode && childStdoutRead) CloseHandle(childStdoutRead);
+        if (writeMode && childStdinWrite) CloseHandle(childStdinWrite);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return result;
+    }
+
+    FILE* stream = _fdopen(fd, readMode ? "r" : "w");
+    if (!stream) {
+        _close(fd);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return result;
+    }
+
+    result.stream = stream;
+    result.proc = pi;
+    return result;
+#else
+    int pipefd[2];
+    if (pipe(pipefd) != 0) return result;
+
+    pid_t pid = fork();
+    if (pid == -1) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return result;
+    }
+    if (pid == 0) {
+        int devNullIn = open("/dev/null", O_RDONLY);
+        int devNullOut = open("/dev/null", O_WRONLY);
+        if (readMode) {
+            dup2(pipefd[1], STDOUT_FILENO);
+            if (quiet && devNullOut != -1) dup2(devNullOut, STDERR_FILENO);
+            if (devNullIn != -1) dup2(devNullIn, STDIN_FILENO);
+        } else {
+            dup2(pipefd[0], STDIN_FILENO);
+            if (devNullOut != -1) {
+                dup2(devNullOut, STDOUT_FILENO);
+                if (quiet) dup2(devNullOut, STDERR_FILENO);
+            }
+        }
+        if (devNullIn != -1) close(devNullIn);
+        if (devNullOut != -1) close(devNullOut);
+        close(pipefd[0]);
+        close(pipefd[1]);
+
+        std::vector<char*> cargs;
+        cargs.reserve(args.size() + 1);
+        for (const auto& a : args) cargs.push_back(const_cast<char*>(a.c_str()));
+        cargs.push_back(nullptr);
+        execvp(cargs[0], cargs.data());
+        _exit(127);
+    }
+
+    if (readMode) {
+        close(pipefd[1]);
+        result.stream = fdopen(pipefd[0], "r");
+    } else {
+        close(pipefd[0]);
+        result.stream = fdopen(pipefd[1], "w");
+    }
+    if (!result.stream) {
+        if (readMode) close(pipefd[0]); else close(pipefd[1]);
+        return result;
+    }
+    result.pid = pid;
+    return result;
+#endif
+}
+
+void VideoGenerator::closeProcessPipe(VideoGenerator::ProcessPipe& proc) {
+    if (!proc.stream) return;
+    fclose(proc.stream);
+    proc.stream = nullptr;
+#ifdef _WIN32
+    if (proc.proc.hProcess) {
+        WaitForSingleObject(proc.proc.hProcess, INFINITE);
+        CloseHandle(proc.proc.hThread);
+        CloseHandle(proc.proc.hProcess);
+        proc.proc.hProcess = NULL;
+        proc.proc.hThread = NULL;
+    }
+#else
+    if (proc.pid > 0) {
+        int status = 0;
+        waitpid(proc.pid, &status, 0);
+        proc.pid = -1;
+    }
+#endif
+}
+
 std::string VideoGenerator::findFFmpeg(std::string binaryName) {
     // 1. Check environment variable first
     const char* envPtr = binaryName == "ffmpeg" ? std::getenv("FFMPEG_PATH") : std::getenv("FFPROBE_PATH");
     if (envPtr && envPtr[0] != '\0') {
-        return std::string(envPtr);
+        return trimQuotes(std::string(envPtr));
+    }
+
+#ifdef _WIN32
+    if (!hasExeSuffix(binaryName)) {
+        binaryName += ".exe";
+    }
+#endif
+
+    // 2. Look on PATH
+    std::string fromPath = findInPath(binaryName);
+    if (!fromPath.empty()) {
+        return fromPath;
     }
     
     // 2. Try common locations
 #ifdef _WIN32
     const std::string testPaths[] = {
-        "ffmpeg.exe",
-        "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
-        "C:\\ffmpeg\\bin\\ffmpeg.exe"
+        binaryName,
+        "C:\\Program Files\\ffmpeg\\bin\\" + binaryName,
+        "C:\\ffmpeg\\bin\\" + binaryName
     };
 #else
     // FIXME: substitute ffmpeg literal with binaryName
@@ -41,15 +330,8 @@ std::string VideoGenerator::findFFmpeg(std::string binaryName) {
 #endif
     
     for (const std::string &path : testPaths) {
-        // Test if ffmpeg is accessible
-        std::string testCmd = path + " -version";
-#ifdef _WIN32
-        testCmd += " >nul 2>&1";
-#else
-        testCmd += " >/dev/null 2>&1";
-#endif
-        if (system(testCmd.c_str()) == 0) {
-            return std::string(path);
+        if (fileExists(path)) {
+            return path;
         }
     }
 
@@ -58,32 +340,34 @@ std::string VideoGenerator::findFFmpeg(std::string binaryName) {
 
 VideoGenerator::VideoGenerator(int width, int height, int fps, float fadeDuration, float maxFadeRatio, int crf, std::string audioCodec, std::string audioBitrate)
     : width_(width), height_(height), fps_(fps), fadeDuration_(fadeDuration), maxFadeRatio_(maxFadeRatio), crf_(crf), audioCodec_(audioCodec), audioBitrate_(audioBitrate),
-      hasBackground_(false), isVideo_(false), videoInput_(nullptr), ffmpegOutput_(nullptr) {
+      hasBackground_(false), isVideo_(false) {
     frame_.resize(width * height * 3);
     ffmpegPath_ = findFFmpeg("ffmpeg");
 }
 
 VideoGenerator::~VideoGenerator() {
-    if (videoInput_) pclose(videoInput_);
-    if (ffmpegOutput_) pclose(ffmpegOutput_);
+    closeProcessPipe(videoInput_);
+    closeProcessPipe(ffmpegOutput_);
 }
 
 bool VideoGenerator::loadBackgroundImage(const char* filename) {
-    char cmd[2048];
-    snprintf(cmd, sizeof(cmd),
-            "\"%s\" -i \"%s\" -vf \"scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d\" "
-            "-f rawvideo -pix_fmt rgb24 -",
-            ffmpegPath_.c_str(), filename, width_, height_, width_, height_);
-    
-    FILE* pipe = popen(cmd, "r");
-    if (!pipe) {
+    std::vector<std::string> args = {
+        ffmpegPath_,
+        "-i", filename,
+        "-vf", "scale=" + std::to_string(width_) + ":" + std::to_string(height_) + ":force_original_aspect_ratio=increase,crop=" + std::to_string(width_) + ":" + std::to_string(height_),
+        "-f", "rawvideo",
+        "-pix_fmt", "rgb24",
+        "-"
+    };
+    VideoGenerator::ProcessPipe pipe = spawnProcessPipe(args, "r", true);
+    if (!pipe.stream) {
         std::cerr << "Failed to load background image: " << filename << "\n";
         return false;
     }
     
     backgroundBuffer_.resize(width_ * height_ * 3);
-    size_t bytesRead = fread(backgroundBuffer_.data(), 1, backgroundBuffer_.size(), pipe);
-    pclose(pipe);
+    size_t bytesRead = fread(backgroundBuffer_.data(), 1, backgroundBuffer_.size(), pipe.stream);
+    closeProcessPipe(pipe);
     
     if (bytesRead != backgroundBuffer_.size()) {
         std::cerr << "Failed to read complete background image\n";
@@ -95,14 +379,19 @@ bool VideoGenerator::loadBackgroundImage(const char* filename) {
 }
 
 bool VideoGenerator::startBackgroundVideo(const char* filename) {
-    char cmd[2048];
-    snprintf(cmd, sizeof(cmd),
-            "\"%s\" -i \"%s\" -vf \"scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d\" "
-            "-f rawvideo -pix_fmt rgb24 -r %d -hide_banner -loglevel error -",
-            ffmpegPath_.c_str(), filename, width_, height_, width_, height_, fps_);
-    
-    videoInput_ = popen(cmd, "r");
-    if (!videoInput_) {
+    std::vector<std::string> args = {
+        ffmpegPath_,
+        "-i", filename,
+        "-vf", "scale=" + std::to_string(width_) + ":" + std::to_string(height_) + ":force_original_aspect_ratio=increase,crop=" + std::to_string(width_) + ":" + std::to_string(height_),
+        "-f", "rawvideo",
+        "-pix_fmt", "rgb24",
+        "-r", std::to_string(fps_),
+        "-hide_banner",
+        "-loglevel", "error",
+        "-"
+    };
+    videoInput_ = spawnProcessPipe(args, "r", true);
+    if (!videoInput_.stream) {
         std::cerr << "Failed to open background video: " << filename << "\n";
         return false;
     }
@@ -123,24 +412,22 @@ double VideoGenerator::probeVideoDuration(const char* filename) {
         return -1.0;
     }
 
-    // Build command to get duration in seconds (quiet output)
-    char cmd[4096];
-#ifdef _WIN32
-    // Windows: redirect stderr to NUL
-    snprintf(cmd, sizeof(cmd), "\"%s\" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"%s\" 2>NUL", ffprobe.c_str(), filename);
-#else
-    snprintf(cmd, sizeof(cmd), "\"%s\" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"%s\" 2>/dev/null", ffprobe.c_str(), filename);
-#endif
-
-    FILE* pipe = popen(cmd, "r");
-    if (!pipe) return -1.0;
+    std::vector<std::string> args = {
+        ffprobe,
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        filename
+    };
+    VideoGenerator::ProcessPipe pipe = spawnProcessPipe(args, "r", true);
+    if (!pipe.stream) return -1.0;
 
     char buf[128];
     std::string out;
-    while (fgets(buf, sizeof(buf), pipe)) {
+    while (fgets(buf, sizeof(buf), pipe.stream)) {
         out += buf;
     }
-    pclose(pipe);
+    closeProcessPipe(pipe);
 
     if (out.empty()) return -1.0;
 
@@ -151,9 +438,9 @@ double VideoGenerator::probeVideoDuration(const char* filename) {
 }
 
 bool VideoGenerator::readVideoFrame() {
-    if (!videoInput_) return false;
+    if (!videoInput_.stream) return false;
     
-    size_t bytesRead = fread(backgroundBuffer_.data(), 1, backgroundBuffer_.size(), videoInput_);
+    size_t bytesRead = fread(backgroundBuffer_.data(), 1, backgroundBuffer_.size(), videoInput_.stream);
     return bytesRead == backgroundBuffer_.size();
 }
 
@@ -170,8 +457,6 @@ bool VideoGenerator::setBackgroundVideo(const char* filename) {
 }
 
 bool VideoGenerator::startFFmpegOutput(const char* filename) {
-    char cmd[4096];
-    
     if (ffmpegPath_.empty()) {
         std::cerr << "FFmpeg path not set or FFmpeg not found\n";
         return false;
@@ -180,12 +465,53 @@ bool VideoGenerator::startFFmpegOutput(const char* filename) {
     // Check for custom FFmpeg parameters from environment
     const char* customParams = std::getenv("FFMPEG_PARAMETERS");
     if (customParams && customParams[0] != '\0') {
-        // Use custom parameters from environment variable
-        snprintf(cmd, sizeof(cmd),
-                "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
-                "%s \"%s\"",
-                ffmpegPath_.c_str(), width_, height_, fps_, customParams, filename);
+        // Use custom parameters from environment variable (simple shell-like split)
+        std::vector<std::string> args = {
+            ffmpegPath_,
+            "-y",
+            "-f", "rawvideo",
+            "-pixel_format", "rgb24",
+            "-video_size", std::to_string(width_) + "x" + std::to_string(height_),
+            "-framerate", std::to_string(fps_),
+            "-i", "-"
+        };
+        std::vector<std::string> extra;
+        {
+            std::string cur;
+            bool inQuote = false;
+            char quoteChar = '\0';
+            for (const char* p = customParams; *p; ++p) {
+                char c = *p;
+                if ((c == '"' || c == '\'') && (!inQuote || c == quoteChar)) {
+                    if (inQuote && c == quoteChar) {
+                        inQuote = false;
+                        quoteChar = '\0';
+                    } else if (!inQuote) {
+                        inQuote = true;
+                        quoteChar = c;
+                    }
+                    continue;
+                }
+                if (!inQuote && std::isspace(static_cast<unsigned char>(c))) {
+                    if (!cur.empty()) {
+                        extra.push_back(cur);
+                        cur.clear();
+                    }
+                } else {
+                    cur.push_back(c);
+                }
+            }
+            if (!cur.empty()) extra.push_back(cur);
+        }
+        for (const auto& e : extra) args.push_back(e);
+        args.push_back(filename);
         std::cout << "Using custom FFmpeg parameters from FFMPEG_PARAMETERS\n";
+        ffmpegOutput_ = spawnProcessPipe(args, "w", true);
+        if (!ffmpegOutput_.stream) {
+            std::cerr << "Failed to open FFmpeg output pipe\n";
+            return false;
+        }
+        return true;
     } else {
         // Determine output extension (lowercase)
         std::string outExt;
@@ -199,42 +525,78 @@ bool VideoGenerator::startFFmpegOutput(const char* filename) {
         }
 
         // Build Audio parameters if specified
-        char audioParams1[1024] = "";
-        char audioParams2[1024] = "";
+        std::vector<std::string> audioArgs1;
+        std::vector<std::string> audioArgs2;
         if (!audioCodec_.empty()) {
-            snprintf(audioParams1, sizeof(audioParams1), "-i '%s' -map 0:v:0 -map 1:a:0 ", backgroundVideo_.c_str());
+            audioArgs1 = {"-i", backgroundVideo_, "-map", "0:v:0", "-map", "1:a:0"};
 
             if (audioBitrate_.empty()) {
-                snprintf(audioParams2, sizeof(audioParams2), "-c:a %s ", audioCodec_.c_str());
+                audioArgs2 = {"-c:a", audioCodec_};
             } else {
-                snprintf(audioParams2, sizeof(audioParams2), "-c:a %s -b:a %s ", audioCodec_.c_str(), audioBitrate_.c_str());
+                audioArgs2 = {"-c:a", audioCodec_, "-b:a", audioBitrate_};
             }  
         }
 
         // Use different codec parameters depending on extension
         if (outExt == "webm") {
-            // AV1 via SVT-AV1 for .webm outputs (preset 7)
-            snprintf(cmd, sizeof(cmd),
-                    "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
-                    "-c:v libsvtav1 -preset 7 -crf %d -pix_fmt yuv420p \"%s\" -hide_banner -loglevel error",
-                    ffmpegPath_.c_str(), width_, height_, fps_, crf_, filename);
+            std::vector<std::string> args = {
+                ffmpegPath_,
+                "-y",
+                "-f", "rawvideo",
+                "-pixel_format", "rgb24",
+                "-video_size", std::to_string(width_) + "x" + std::to_string(height_),
+                "-framerate", std::to_string(fps_),
+                "-i", "-",
+                "-c:v", "libsvtav1",
+                "-preset", "7",
+                "-crf", std::to_string(crf_),
+                "-pix_fmt", "yuv420p",
+                filename,
+                "-hide_banner",
+                "-loglevel", "error"
+            };
+            ffmpegOutput_ = spawnProcessPipe(args, "w", true);
         } else if (outExt == "mov") {
-            // ProRes output for .mov (using prores_ks)
-            snprintf(cmd, sizeof(cmd),
-                    "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - "
-                    "-c:v prores_ks -profile:v 3 -qscale:v %d -pix_fmt yuv422p10le \"%s\" -hide_banner -loglevel error",
-                    ffmpegPath_.c_str(), width_, height_, fps_, crf_, filename);
+            std::vector<std::string> args = {
+                ffmpegPath_,
+                "-y",
+                "-f", "rawvideo",
+                "-pixel_format", "rgb24",
+                "-video_size", std::to_string(width_) + "x" + std::to_string(height_),
+                "-framerate", std::to_string(fps_),
+                "-i", "-",
+                "-c:v", "prores_ks",
+                "-profile:v", "3",
+                "-qscale:v", std::to_string(crf_),
+                "-pix_fmt", "yuv422p10le",
+                filename,
+                "-hide_banner",
+                "-loglevel", "error"
+            };
+            ffmpegOutput_ = spawnProcessPipe(args, "w", true);
         } else {
-            // Default: H.264 with configurable CRF
-            snprintf(cmd, sizeof(cmd),
-                    "\"%s\" -y -f rawvideo -pixel_format rgb24 -video_size %dx%d -framerate %d -i - %s"
-                    "-c:v libx264 -preset medium -crf %d -pix_fmt yuv420p %s -movflags faststart \"%s\" -hide_banner -loglevel error",
-                    ffmpegPath_.c_str(), width_, height_, fps_, audioParams1,  crf_, audioParams2, filename);
+            std::vector<std::string> args = {
+                ffmpegPath_,
+                "-y",
+                "-f", "rawvideo",
+                "-pixel_format", "rgb24",
+                "-video_size", std::to_string(width_) + "x" + std::to_string(height_),
+                "-framerate", std::to_string(fps_),
+                "-i", "-"
+            };
+            if (!audioArgs1.empty()) {
+                args.insert(args.end(), audioArgs1.begin(), audioArgs1.end());
+            }
+            args.insert(args.end(), {"-c:v", "libx264", "-preset", "medium", "-crf", std::to_string(crf_), "-pix_fmt", "yuv420p"});
+            if (!audioArgs2.empty()) {
+                args.insert(args.end(), audioArgs2.begin(), audioArgs2.end());
+            }
+            args.insert(args.end(), {"-movflags", "faststart", filename, "-hide_banner", "-loglevel", "error"});
+            ffmpegOutput_ = spawnProcessPipe(args, "w", true);
         }
     }
     
-    ffmpegOutput_ = popen(cmd, "w");
-    if (!ffmpegOutput_) {
+    if (!ffmpegOutput_.stream) {
         std::cerr << "Failed to open FFmpeg output pipe\n";
         return false;
     }
@@ -360,7 +722,7 @@ bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outpu
         
         // Write frame unless the effect requested it be dropped
         if (!dropFrame) {
-            fwrite(frame_.data(), 1, frame_.size(), ffmpegOutput_);
+            fwrite(frame_.data(), 1, frame_.size(), ffmpegOutput_.stream);
         }
         
         // Update effect state
@@ -373,8 +735,7 @@ bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outpu
         }
     }
     
-    pclose(ffmpegOutput_);
-    ffmpegOutput_ = nullptr;
+    closeProcessPipe(ffmpegOutput_);
     
     std::cout << "\nVideo saved to: " << outputFile << "\n";
     return true;
