@@ -22,39 +22,39 @@ private:
     int simHeight_ = 0;
 
     int substeps_ = 2;
-    int pressureIters_ = 30;
+    int pressureIters_ = 12;
     int diffusionIters_ = 1;
     int threadsOpt_ = 0; // 0 = auto
 
     float timeScale_ = 1.0f;
     float sourceX_ = 0.5f;       // normalized
     float sourceY_ = 0.97f;      // normalized (0=top, 1=bottom)
-    float sourceWidth_ = 0.075f; // normalized base width
+    float sourceWidth_ = 0.02f;  // normalized base width
     float sourceHeight_ = 0.12f; // normalized source region height
     float sourceSpread_ = 1.75f; // width expansion above base
     float sourceHeat_ = 3.2f;
     float sourceSmoke_ = 1.1f;
-    float sourceUpdraft_ = 92.0f;
+    float sourceUpdraft_ = 200.0f;
     float turbulence_ = 18.0f;
-    float flicker_ = 0.45f;
-    float crosswind_ = 10.0f;
-    float initialAir_ = 10.0f;
+    float flicker_ = 1.6f;
+    float crosswind_ = 6.0f;
+    float initialAir_ = 40.0f;
 
-    float buoyancy_ = 48.0f;
-    float cooling_ = 0.54f;
+    float buoyancy_ = 220.0f;
+    float cooling_ = 0.45f;
     float coolingAloftBoost_ = 0.5f;
-    float smokeDissipation_ = 0.14f;
+    float smokeDissipation_ = 0.5f;
     float velocityDamping_ = 0.10f;
-    float vorticity_ = 24.0f;
+    float vorticity_ = 75.0f;
 
     float flameIntensity_ = 1.25f;
     float flameCutoff_ = 0.15f;
     float flameSharpness_ = 2.0f;
     float smokeIntensity_ = 0.92f;
     float smokiness_ = 0.85f;
-    float smokeDarkness_ = 0.65f;
+    float smokeDarkness_ = 0.1f;
     float ageRate_ = 1.6f;
-    float ageCooling_ = 0.8f;
+    float ageCooling_ = 0.68f;
     float agePower_ = 1.5f;
     float ageTaper_ = 1.1f;
 
@@ -472,35 +472,35 @@ public:
         opts.push_back({"--sim-height", "int", 64, 4096, true, "Fluid simulation height (rendered via upscale/downscale)", "270"});
         opts.push_back({"--threads", "int", 0, 128, true, "Thread count for simulation passes (0 = auto)", "0"});
         opts.push_back({"--substeps", "int", 1, 8, true, "Simulation substeps per output frame", "2"});
-        opts.push_back({"--pressure-iters", "int", 4, 160, true, "Pressure solver iterations", "30"});
+        opts.push_back({"--pressure-iters", "int", 4, 160, true, "Pressure solver iterations", "12"});
         opts.push_back({"--diffusion-iters", "int", 0, 8, true, "Scalar diffusion iterations", "1"});
         opts.push_back({"--timescale", "float", 0.1, 5.0, true, "Simulation speed multiplier", "1.0"});
         opts.push_back({"--source-x", "float", 0.0, 1.0, true, "Burner X position in normalized coordinates", "0.5"});
         opts.push_back({"--source-y", "float", 0.0, 1.0, true, "Burner Y position in normalized coordinates (0=top, 1=bottom)", "0.97"});
-        opts.push_back({"--source-width", "float", 0.01, 1.0, true, "Base burner width as fraction of sim width", "0.075"});
+        opts.push_back({"--source-width", "float", 0.01, 1.0, true, "Base burner width as fraction of sim width", "0.02"});
         opts.push_back({"--source-height", "float", 0.01, 1.0, true, "Source region height as fraction of sim height", "0.12"});
         opts.push_back({"--source-spread", "float", 0.2, 4.0, true, "How quickly the flame widens above the base", "1.75"});
         opts.push_back({"--source-heat", "float", 0.0, 20.0, true, "Heat injection strength", "3.2"});
         opts.push_back({"--source-smoke", "float", 0.0, 10.0, true, "Smoke injection strength", "1.1"});
-        opts.push_back({"--source-updraft", "float", 0.0, 300.0, true, "Initial upward velocity impulse", "92.0"});
+        opts.push_back({"--source-updraft", "float", 0.0, 300.0, true, "Initial upward velocity impulse", "200.0"});
         opts.push_back({"--turbulence", "float", 0.0, 120.0, true, "Lateral jitter from source turbulence", "18.0"});
-        opts.push_back({"--flicker", "float", 0.0, 3.0, true, "Randomized flicker strength", "0.45"});
-        opts.push_back({"--crosswind", "float", 0.0, 80.0, true, "Ambient lateral air motion strength", "10.0"});
-        opts.push_back({"--initial-air", "float", 0.0, 80.0, true, "Initial random airflow strength", "10.0"});
-        opts.push_back({"--buoyancy", "float", 0.0, 200.0, true, "Buoyancy from temperature", "48.0"});
-        opts.push_back({"--cooling", "float", 0.0, 3.0, true, "Temperature cooling rate", "0.54"});
+        opts.push_back({"--flicker", "float", 0.0, 3.0, true, "Randomized flicker strength", "1.6"});
+        opts.push_back({"--crosswind", "float", 0.0, 80.0, true, "Ambient lateral air motion strength", "6.0"});
+        opts.push_back({"--initial-air", "float", 0.0, 80.0, true, "Initial random airflow strength", "40.0"});
+        opts.push_back({"--buoyancy", "float", 0.0, 300.0, true, "Buoyancy from temperature", "220.0"});
+        opts.push_back({"--cooling", "float", 0.0, 3.0, true, "Temperature cooling rate", "0.45"});
         opts.push_back({"--cooling-aloft", "float", 0.0, 4.0, true, "Extra cooling toward the top of the frame", "0.5"});
-        opts.push_back({"--smoke-dissipation", "float", 0.0, 3.0, true, "Smoke dissipation rate", "0.14"});
+        opts.push_back({"--smoke-dissipation", "float", 0.0, 3.0, true, "Smoke dissipation rate", "0.5"});
         opts.push_back({"--velocity-damping", "float", 0.0, 3.0, true, "Velocity damping rate", "0.10"});
-        opts.push_back({"--vorticity", "float", 0.0, 100.0, true, "Vorticity confinement strength", "24.0"});
+        opts.push_back({"--vorticity", "float", 0.0, 100.0, true, "Vorticity confinement strength", "75.0"});
         opts.push_back({"--flame-intensity", "float", 0.0, 5.0, true, "Brightness of flame emission", "1.25"});
         opts.push_back({"--smoke-intensity", "float", 0.0, 3.0, true, "Opacity of smoke", "0.92"});
         opts.push_back({"--flame-cutoff", "float", 0.0, 1.5, true, "Heat rolloff scale for smooth flame response (lower = easier ignition)", "0.15"});
         opts.push_back({"--flame-sharpness", "float", 0.5, 6.0, true, "Curve exponent for smooth flame response", "2.0"});
         opts.push_back({"--smokiness", "float", 0.0, 2.0, true, "Overall amount of smoke produced and rendered", "0.85"});
-        opts.push_back({"--smoke-darkness", "float", 0.0, 1.0, true, "Smoke color from light gray (0) to near-black (1)", "0.65"});
+        opts.push_back({"--smoke-darkness", "float", 0.0, 1.0, true, "Smoke color from light gray (0) to near-black (1)", "0.1"});
         opts.push_back({"--age-rate", "float", 0.0, 8.0, true, "How fast emitted flame ages as it rises", "1.6"});
-        opts.push_back({"--age-cooling", "float", 0.0, 8.0, true, "Extra cooling strength based on thermal age", "0.8"});
+        opts.push_back({"--age-cooling", "float", 0.0, 8.0, true, "Extra cooling strength based on thermal age", "0.68"});
         opts.push_back({"--age-power", "float", 0.5, 4.0, true, "Power curve for age-based cooling/taper", "1.5"});
         opts.push_back({"--age-taper", "float", 0.0, 4.0, true, "How strongly thermal age suppresses visible flame", "1.1"});
         return opts;
