@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <random>
 #include <sstream>
 #include <thread>
 #include <vector>
@@ -38,11 +39,13 @@ private:
     float sourceWidth_ = 0.02f;  // normalized base width
     float sourceHeight_ = 0.12f; // normalized source region height
     float sourceSpread_ = 1.75f; // width expansion above base
+    int burnerMode_ = 1;         // 0=gaussian, 1=tiki, 2=hybrid
     float sourceHeat_ = 3.2f;
     float sourceSmoke_ = 1.1f;
     float sourceUpdraft_ = 200.0f;
     float turbulence_ = 18.0f;
-    float flicker_ = 1.6f;
+    float wobble_ = 0.1f;
+    float flicker_ = 0.75f;      // heat flicker amount (0..1+)
     float crosswind_ = 6.0f;
     float initialAir_ = 40.0f;
 
@@ -63,6 +66,11 @@ private:
     float ageCooling_ = 0.68f;
     float agePower_ = 1.5f;
     float ageTaper_ = 1.1f;
+    float heatFlickerGain_ = 1.0f;
+    float heatFlickerTarget_ = 1.0f;
+    float heatFlickerTimer_ = 0.0f;
+    float heatFlickerRecover_ = 1.1f;
+    std::mt19937 rng_{std::random_device{}()};
 
     std::vector<float> u_;
     std::vector<float> v_;
@@ -104,6 +112,91 @@ private:
         if (parsed.empty()) return false;
         sourcePoints_ = std::move(parsed);
         return true;
+    }
+
+    bool applyPreset(const std::string& name) {
+        if (name == "candle") {
+            burnerMode_ = 0; // gaussian
+            pressureIters_ = 16;
+            sourceWidth_ = 0.012f;
+            sourceHeight_ = 0.10f;
+            sourceSpread_ = 1.15f;
+            sourceHeat_ = 2.4f;
+            sourceSmoke_ = 0.25f;
+            sourceUpdraft_ = 135.0f;
+            turbulence_ = 8.0f;
+            wobble_ = 0.06f;
+            flicker_ = 0.45f;
+            crosswind_ = 1.5f;
+            initialAir_ = 10.0f;
+            buoyancy_ = 120.0f;
+            cooling_ = 0.65f;
+            coolingAloftBoost_ = 0.90f;
+            smokeDissipation_ = 0.85f;
+            vorticity_ = 35.0f;
+            flameIntensity_ = 1.15f;
+            smokiness_ = 0.12f;
+            smokeDarkness_ = 0.05f;
+            ageRate_ = 1.2f;
+            ageCooling_ = 1.2f;
+            ageTaper_ = 1.5f;
+            return true;
+        }
+        if (name == "campfire") {
+            burnerMode_ = 2; // hybrid
+            pressureIters_ = 12;
+            sourceWidth_ = 0.060f;
+            sourceHeight_ = 0.14f;
+            sourceSpread_ = 1.9f;
+            sourceHeat_ = 3.6f;
+            sourceSmoke_ = 1.5f;
+            sourceUpdraft_ = 150.0f;
+            turbulence_ = 35.0f;
+            wobble_ = 0.22f;
+            flicker_ = 0.80f;
+            crosswind_ = 8.0f;
+            initialAir_ = 30.0f;
+            buoyancy_ = 180.0f;
+            cooling_ = 0.38f;
+            coolingAloftBoost_ = 0.42f;
+            smokeDissipation_ = 0.35f;
+            vorticity_ = 70.0f;
+            flameIntensity_ = 1.35f;
+            smokiness_ = 1.1f;
+            smokeDarkness_ = 0.42f;
+            ageRate_ = 1.5f;
+            ageCooling_ = 0.70f;
+            ageTaper_ = 1.1f;
+            return true;
+        }
+        if (name == "bonfire") {
+            burnerMode_ = 2; // hybrid
+            pressureIters_ = 10;
+            sourceWidth_ = 0.10f;
+            sourceHeight_ = 0.16f;
+            sourceSpread_ = 2.2f;
+            sourceHeat_ = 4.5f;
+            sourceSmoke_ = 2.0f;
+            sourceUpdraft_ = 190.0f;
+            turbulence_ = 90.0f;
+            wobble_ = 0.35f;
+            flicker_ = 2.0f;
+            crosswind_ = 42.0f;
+            initialAir_ = 65.0f;
+            buoyancy_ = 240.0f;
+            cooling_ = 0.30f;
+            coolingAloftBoost_ = 0.35f;
+            smokeDissipation_ = 0.22f;
+            vorticity_ = 85.0f;
+            flameIntensity_ = 1.55f;
+            smokiness_ = 1.5f;
+            smokeDarkness_ = 0.70f;
+            ageRate_ = 1.3f;
+            ageCooling_ = 0.60f;
+            ageTaper_ = 1.0f;
+            return true;
+        }
+        return false;
     }
 
     int workerCount() const {
@@ -205,7 +298,7 @@ private:
     }
 
     void applyAmbientAirMotion(float dt) {
-        if (crosswind_ <= 0.0f && flicker_ <= 0.0f) return;
+        if (crosswind_ <= 0.0f && wobble_ <= 0.0f) return;
         float t = frameCount_ / std::max(1.0f, (float)fps_);
         parallelRows(1, simHeight_ - 1, [&](int y0, int y1) {
             for (int y = y0; y < y1; ++y) {
@@ -215,11 +308,40 @@ private:
                 for (int x = 1; x < simWidth_ - 1; ++x) {
                     int i = idx(x, y);
                     float localNoise = (hash3(x, y, frameCount_ + 1234) - 0.5f) * 2.0f;
-                    u_[i] += (globalWind + localNoise * flicker_ * 4.0f) * dt;
-                    v_[i] += localNoise * flicker_ * 1.2f * dt;
+                    u_[i] += (globalWind + localNoise * wobble_ * 4.0f) * dt;
+                    v_[i] += localNoise * wobble_ * 1.2f * dt;
                 }
             }
         });
+    }
+
+    void updateHeatFlicker(float dt) {
+        if (flicker_ <= 0.0f) {
+            heatFlickerGain_ = 1.0f;
+            heatFlickerTarget_ = 1.0f;
+            heatFlickerTimer_ = 0.0f;
+            return;
+        }
+
+        heatFlickerTimer_ -= dt;
+        if (heatFlickerTimer_ <= 0.0f) {
+            std::uniform_real_distribution<float> intervalDist(0.2f, 3.0f);
+            std::uniform_real_distribution<float> unitDist(0.0f, 1.0f);
+            heatFlickerTimer_ = intervalDist(rng_);
+
+            float f = std::clamp(flicker_, 0.0f, 1.5f);
+            float minDrop = std::clamp(1.0f - f * 0.8f, 0.2f, 1.0f);
+            float maxDrop = std::clamp(1.0f - f * 0.5f, minDrop, 1.0f);
+            std::uniform_real_distribution<float> dropDist(minDrop, maxDrop);
+            heatFlickerGain_ *= dropDist(rng_);
+            heatFlickerGain_ = std::clamp(heatFlickerGain_, 0.15f, 2.0f);
+
+            heatFlickerTarget_ = 1.0f + f * (0.1f + 0.35f * unitDist(rng_));
+            heatFlickerRecover_ = 0.8f + f * (1.4f + 0.6f * unitDist(rng_));
+        }
+
+        float alpha = std::clamp(heatFlickerRecover_ * dt, 0.0f, 1.0f);
+        heatFlickerGain_ += (heatFlickerTarget_ - heatFlickerGain_) * alpha;
     }
 
     void addSources(float dt) {
@@ -232,10 +354,10 @@ private:
             activeSources = sourcePoints_;
         }
 
-        for (const auto& sp : activeSources) {
+        auto injectGaussian = [&](const SourcePoint& sp, float modeScale) {
             float cxBase = sp.x * (simWidth_ - 1);
             float flick = std::sin(frameCount_ * 0.27f) * 0.7f + std::sin(frameCount_ * 0.11f + 1.2f) * 0.4f;
-            float cx = cxBase + flick * (1.0f + flicker_ * 2.0f);
+            float cx = cxBase + flick * (1.0f + wobble_ * 2.0f);
             float sourceY = sp.y * (simHeight_ - 1);
             float sigmaY = std::max(0.9f, sourceHeight_ * simHeight_ * 0.24f);
             int yStart = std::max(1, (int)std::floor(sourceY - 3.0f * sigmaY));
@@ -243,12 +365,9 @@ private:
             int minX = std::max(1, (int)std::floor(cx - halfWBase * 2.4f - 4.0f));
             int maxX = std::min(simWidth_ - 2, (int)std::ceil(cx + halfWBase * 2.4f + 4.0f));
 
-            // Smooth burner injection: gaussian in Y and gaussian-like in X
-            // to avoid geometric cap/shoulder artifacts in early frames.
             for (int y = yStart; y <= yEnd; ++y) {
                 float dy = ((float)y - sourceY) / sigmaY;
                 float yWeight = std::exp(-0.5f * dy * dy);
-                // "rise" only above burner center; used for mild widening.
                 float rise = std::clamp((sourceY - (float)y) / std::max(1.0f, sigmaY * 2.4f), 0.0f, 1.0f);
                 float plumeHalfW = halfWBase * (1.0f + sourceSpread_ * 0.55f * rise);
                 for (int x = minX; x <= maxX; ++x) {
@@ -259,16 +378,62 @@ private:
 
                     float n = hash3(x, y, phase);
                     float pulse = 0.82f + 0.18f * std::sin(0.19f * (float)phase + (float)x * 0.09f + (float)y * 0.04f);
-                    float shape = xWeight * yWeight * pulse;
+                    float shape = xWeight * yWeight * pulse * modeScale;
 
                     int i = idx(x, y);
-                    temp_[i] += sourceHeat_ * shape * dt;
+                    temp_[i] += sourceHeat_ * heatFlickerGain_ * shape * dt;
                     smoke_[i] += sourceSmoke_ * smokiness_ * (0.7f + 0.3f * n) * shape * dt;
-                    // Freshly emitted flame starts "young" and ages as it is advected away.
                     age_[i] = std::min(age_[i], 0.03f + 0.05f * (1.0f - n));
                     v_[i] -= sourceUpdraft_ * shape * dt;
-                    u_[i] += ((n - 0.5f) * 2.0f) * turbulence_ * (0.8f + 0.5f * rise + flicker_) * shape * dt;
+                    u_[i] += ((n - 0.5f) * 2.0f) * turbulence_ * (0.8f + 0.5f * rise + wobble_) * shape * dt;
                 }
+            }
+        };
+
+        auto injectTiki = [&](const SourcePoint& sp, float modeScale) {
+            float cxBase = sp.x * (simWidth_ - 1);
+            float flick = std::sin(frameCount_ * 0.23f) * 0.6f + std::sin(frameCount_ * 0.13f + 0.8f) * 0.35f;
+            float cx = cxBase + flick * (0.9f + wobble_ * 1.8f);
+            float sourceTop = sp.y * (simHeight_ - 1);
+            float regionH = std::max(2.0f, sourceHeight_ * simHeight_);
+            int yStart = std::max(1, (int)std::floor(sourceTop - regionH));
+            int yEnd = std::min(simHeight_ - 2, (int)std::ceil(sourceTop));
+            int minX = std::max(1, (int)std::floor(cx - halfWBase * (1.0f + sourceSpread_) - 3.0f));
+            int maxX = std::min(simWidth_ - 2, (int)std::ceil(cx + halfWBase * (1.0f + sourceSpread_) + 3.0f));
+
+            for (int y = yStart; y <= yEnd; ++y) {
+                float h = (float)(yEnd - y) / std::max(1, yEnd - yStart);
+                float plumeHalfW = halfWBase * (0.40f + sourceSpread_ * h);
+                float yWeight = 0.45f + 0.55f * (1.0f - h);
+                for (int x = minX; x <= maxX; ++x) {
+                    float dx = std::fabs((float)x - cx);
+                    float xWeight = 1.0f - dx / (plumeHalfW + 1e-4f);
+                    if (xWeight <= 0.0f) continue;
+                    xWeight = xWeight * xWeight * xWeight;
+
+                    float n = hash3(x, y, phase + 77);
+                    float pulse = 0.84f + 0.16f * std::sin(0.17f * (float)phase + (float)x * 0.08f);
+                    float shape = xWeight * yWeight * pulse * modeScale;
+
+                    int i = idx(x, y);
+                    temp_[i] += sourceHeat_ * heatFlickerGain_ * shape * dt;
+                    smoke_[i] += sourceSmoke_ * smokiness_ * (0.65f + 0.35f * n) * shape * dt;
+                    age_[i] = std::min(age_[i], 0.02f + 0.04f * (1.0f - n));
+                    // Tiki base gives a slightly stronger base push.
+                    v_[i] -= sourceUpdraft_ * 1.15f * shape * dt;
+                    u_[i] += ((n - 0.5f) * 2.0f) * turbulence_ * (0.7f + 0.8f * h + wobble_) * shape * dt;
+                }
+            }
+        };
+
+        for (const auto& sp : activeSources) {
+            if (burnerMode_ == 1) {
+                injectTiki(sp, 1.0f);
+            } else if (burnerMode_ == 2) {
+                injectGaussian(sp, 0.65f);
+                injectTiki(sp, 0.45f);
+            } else {
+                injectGaussian(sp, 1.0f);
             }
         }
     }
@@ -441,6 +606,7 @@ private:
     }
 
     void stepSimulation(float dt) {
+        updateHeatFlicker(dt);
         applyAmbientAirMotion(dt);
         addSources(dt);
 
@@ -513,9 +679,11 @@ public:
         opts.push_back({"--pressure-iters", "int", 4, 160, true, "Pressure solver iterations", "12"});
         opts.push_back({"--diffusion-iters", "int", 0, 8, true, "Scalar diffusion iterations", "1"});
         opts.push_back({"--timescale", "float", 0.1, 5.0, true, "Simulation speed multiplier", "1.0"});
+        opts.push_back({"--preset", "string", 0, 0, false, "Preset look: candle, campfire, bonfire", ""});
         opts.push_back({"--source-x", "float", 0.0, 1.0, true, "Burner X position in normalized coordinates", "0.5"});
         opts.push_back({"--source-y", "float", 0.0, 1.0, true, "Burner Y position in normalized coordinates (0=top, 1=bottom)", "0.97"});
         opts.push_back({"--sources", "string", 0, 0, false, "Multiple burner points as 'x1,y1;x2,y2;...'(normalized 0..1)", ""});
+        opts.push_back({"--burner", "string", 0, 0, false, "Burner model: gaussian, tiki, or hybrid", "tiki"});
         opts.push_back({"--source-width", "float", 0.01, 1.0, true, "Base burner width as fraction of sim width", "0.02"});
         opts.push_back({"--source-height", "float", 0.01, 1.0, true, "Source region height as fraction of sim height", "0.12"});
         opts.push_back({"--source-spread", "float", 0.2, 4.0, true, "How quickly the flame widens above the base", "1.75"});
@@ -523,7 +691,8 @@ public:
         opts.push_back({"--source-smoke", "float", 0.0, 10.0, true, "Smoke injection strength", "1.1"});
         opts.push_back({"--source-updraft", "float", 0.0, 300.0, true, "Initial upward velocity impulse", "200.0"});
         opts.push_back({"--turbulence", "float", 0.0, 120.0, true, "Lateral jitter from source turbulence", "18.0"});
-        opts.push_back({"--flicker", "float", 0.0, 3.0, true, "Randomized flicker strength", "1.6"});
+        opts.push_back({"--wobble", "float", 0.0, 3.0, true, "Base side-to-side source wobble / airflow jitter", "0.1"});
+        opts.push_back({"--flicker", "float", 0.0, 1.5, true, "Heat flicker amount (random drop/rebuild cycles)", "0.75"});
         opts.push_back({"--crosswind", "float", 0.0, 80.0, true, "Ambient lateral air motion strength", "6.0"});
         opts.push_back({"--initial-air", "float", 0.0, 80.0, true, "Initial random airflow strength", "40.0"});
         opts.push_back({"--buoyancy", "float", 0.0, 300.0, true, "Buoyancy from temperature", "220.0"});
@@ -554,9 +723,17 @@ public:
         if (arg == "--pressure-iters" && i + 1 < argc) { pressureIters_ = std::atoi(argv[++i]); return true; }
         if (arg == "--diffusion-iters" && i + 1 < argc) { diffusionIters_ = std::atoi(argv[++i]); return true; }
         if (arg == "--timescale" && i + 1 < argc) { timeScale_ = std::atof(argv[++i]); return true; }
+        if (arg == "--preset" && i + 1 < argc) { applyPreset(argv[++i]); return true; }
         if (arg == "--source-x" && i + 1 < argc) { sourceX_ = std::atof(argv[++i]); return true; }
         if (arg == "--source-y" && i + 1 < argc) { sourceY_ = std::atof(argv[++i]); return true; }
         if (arg == "--sources" && i + 1 < argc) { parseSourcesSpec(argv[++i]); return true; }
+        if (arg == "--burner" && i + 1 < argc) {
+            std::string v = argv[++i];
+            if (v == "gaussian") burnerMode_ = 0;
+            else if (v == "tiki") burnerMode_ = 1;
+            else if (v == "hybrid") burnerMode_ = 2;
+            return true;
+        }
         if (arg == "--source-width" && i + 1 < argc) { sourceWidth_ = std::atof(argv[++i]); return true; }
         if (arg == "--source-height" && i + 1 < argc) { sourceHeight_ = std::atof(argv[++i]); return true; }
         if (arg == "--source-spread" && i + 1 < argc) { sourceSpread_ = std::atof(argv[++i]); return true; }
@@ -564,6 +741,7 @@ public:
         if (arg == "--source-smoke" && i + 1 < argc) { sourceSmoke_ = std::atof(argv[++i]); return true; }
         if (arg == "--source-updraft" && i + 1 < argc) { sourceUpdraft_ = std::atof(argv[++i]); return true; }
         if (arg == "--turbulence" && i + 1 < argc) { turbulence_ = std::atof(argv[++i]); return true; }
+        if (arg == "--wobble" && i + 1 < argc) { wobble_ = std::atof(argv[++i]); return true; }
         if (arg == "--flicker" && i + 1 < argc) { flicker_ = std::atof(argv[++i]); return true; }
         if (arg == "--crosswind" && i + 1 < argc) { crosswind_ = std::atof(argv[++i]); return true; }
         if (arg == "--initial-air" && i + 1 < argc) { initialAir_ = std::atof(argv[++i]); return true; }
@@ -603,12 +781,14 @@ public:
         sourceWidth_ = std::clamp(sourceWidth_, 0.01f, 1.0f);
         sourceHeight_ = std::clamp(sourceHeight_, 0.01f, 1.0f);
         sourceSpread_ = std::clamp(sourceSpread_, 0.2f, 4.0f);
+        burnerMode_ = std::clamp(burnerMode_, 0, 2);
         timeScale_ = std::clamp(timeScale_, 0.1f, 5.0f);
         for (auto& p : sourcePoints_) {
             p.x = std::clamp(p.x, 0.0f, 1.0f);
             p.y = std::clamp(p.y, 0.0f, 1.0f);
         }
-        flicker_ = std::clamp(flicker_, 0.0f, 3.0f);
+        wobble_ = std::clamp(wobble_, 0.0f, 3.0f);
+        flicker_ = std::clamp(flicker_, 0.0f, 1.5f);
         crosswind_ = std::clamp(crosswind_, 0.0f, 80.0f);
         initialAir_ = std::clamp(initialAir_, 0.0f, 80.0f);
         coolingAloftBoost_ = std::clamp(coolingAloftBoost_, 0.0f, 4.0f);
