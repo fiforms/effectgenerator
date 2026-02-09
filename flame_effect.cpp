@@ -6,11 +6,17 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <sstream>
 #include <thread>
 #include <vector>
 
 class FlameEffect : public Effect {
 private:
+    struct SourcePoint {
+        float x = 0.5f;
+        float y = 0.97f;
+    };
+
     int width_ = 0;
     int height_ = 0;
     int fps_ = 30;
@@ -72,10 +78,33 @@ private:
     std::vector<float> pressureTmp_;
     std::vector<float> divergence_;
     std::vector<float> curl_;
+    std::vector<SourcePoint> sourcePoints_;
 
     inline int idx(int x, int y) const { return y * simWidth_ + x; }
 
     static float clamp01(float v) { return std::clamp(v, 0.0f, 1.0f); }
+
+    bool parseSourcesSpec(const std::string& spec) {
+        std::vector<SourcePoint> parsed;
+        std::stringstream ss(spec);
+        std::string token;
+        while (std::getline(ss, token, ';')) {
+            if (token.empty()) continue;
+            auto comma = token.find(',');
+            if (comma == std::string::npos) continue;
+            std::string xs = token.substr(0, comma);
+            std::string ys = token.substr(comma + 1);
+            char* endX = nullptr;
+            char* endY = nullptr;
+            float x = std::strtof(xs.c_str(), &endX);
+            float y = std::strtof(ys.c_str(), &endY);
+            if (endX == xs.c_str() || endY == ys.c_str()) continue;
+            parsed.push_back({std::clamp(x, 0.0f, 1.0f), std::clamp(y, 0.0f, 1.0f)});
+        }
+        if (parsed.empty()) return false;
+        sourcePoints_ = std::move(parsed);
+        return true;
+    }
 
     int workerCount() const {
         int hw = (int)std::thread::hardware_concurrency();
@@ -194,43 +223,52 @@ private:
     }
 
     void addSources(float dt) {
-        float cxBase = sourceX_ * (simWidth_ - 1);
-        float flick = std::sin(frameCount_ * 0.27f) * 0.7f + std::sin(frameCount_ * 0.11f + 1.2f) * 0.4f;
-        float cx = cxBase + flick * (1.0f + flicker_ * 2.0f);
         float halfWBase = std::max(0.6f, sourceWidth_ * simWidth_ * 0.5f);
-        float sourceY = sourceY_ * (simHeight_ - 1);
-        float sigmaY = std::max(0.9f, sourceHeight_ * simHeight_ * 0.24f);
-        int yStart = std::max(1, (int)std::floor(sourceY - 3.0f * sigmaY));
-        int yEnd = std::min(simHeight_ - 2, (int)std::ceil(sourceY + 1.5f * sigmaY));
-        int minX = std::max(1, (int)std::floor(cx - halfWBase * 2.4f - 4.0f));
-        int maxX = std::min(simWidth_ - 2, (int)std::ceil(cx + halfWBase * 2.4f + 4.0f));
         int phase = frameCount_;
+        std::vector<SourcePoint> activeSources;
+        if (sourcePoints_.empty()) {
+            activeSources.push_back({sourceX_, sourceY_});
+        } else {
+            activeSources = sourcePoints_;
+        }
 
-        // Smooth burner injection: gaussian in Y and gaussian-like in X
-        // to avoid geometric cap/shoulder artifacts in early frames.
-        for (int y = yStart; y <= yEnd; ++y) {
-            float dy = ((float)y - sourceY) / sigmaY;
-            float yWeight = std::exp(-0.5f * dy * dy);
-            // "rise" only above burner center; used for mild widening.
-            float rise = std::clamp((sourceY - (float)y) / std::max(1.0f, sigmaY * 2.4f), 0.0f, 1.0f);
-            float plumeHalfW = halfWBase * (1.0f + sourceSpread_ * 0.55f * rise);
-            for (int x = minX; x <= maxX; ++x) {
-                float dx = std::fabs((float)x - cx);
-                float nx = dx / (plumeHalfW + 1e-4f);
-                if (nx >= 2.5f) continue;
-                float xWeight = std::exp(-0.95f * nx * nx);
+        for (const auto& sp : activeSources) {
+            float cxBase = sp.x * (simWidth_ - 1);
+            float flick = std::sin(frameCount_ * 0.27f) * 0.7f + std::sin(frameCount_ * 0.11f + 1.2f) * 0.4f;
+            float cx = cxBase + flick * (1.0f + flicker_ * 2.0f);
+            float sourceY = sp.y * (simHeight_ - 1);
+            float sigmaY = std::max(0.9f, sourceHeight_ * simHeight_ * 0.24f);
+            int yStart = std::max(1, (int)std::floor(sourceY - 3.0f * sigmaY));
+            int yEnd = std::min(simHeight_ - 2, (int)std::ceil(sourceY + 1.5f * sigmaY));
+            int minX = std::max(1, (int)std::floor(cx - halfWBase * 2.4f - 4.0f));
+            int maxX = std::min(simWidth_ - 2, (int)std::ceil(cx + halfWBase * 2.4f + 4.0f));
 
-                float n = hash3(x, y, phase);
-                float pulse = 0.82f + 0.18f * std::sin(0.19f * (float)phase + (float)x * 0.09f + (float)y * 0.04f);
-                float shape = xWeight * yWeight * pulse;
+            // Smooth burner injection: gaussian in Y and gaussian-like in X
+            // to avoid geometric cap/shoulder artifacts in early frames.
+            for (int y = yStart; y <= yEnd; ++y) {
+                float dy = ((float)y - sourceY) / sigmaY;
+                float yWeight = std::exp(-0.5f * dy * dy);
+                // "rise" only above burner center; used for mild widening.
+                float rise = std::clamp((sourceY - (float)y) / std::max(1.0f, sigmaY * 2.4f), 0.0f, 1.0f);
+                float plumeHalfW = halfWBase * (1.0f + sourceSpread_ * 0.55f * rise);
+                for (int x = minX; x <= maxX; ++x) {
+                    float dx = std::fabs((float)x - cx);
+                    float nx = dx / (plumeHalfW + 1e-4f);
+                    if (nx >= 2.5f) continue;
+                    float xWeight = std::exp(-0.95f * nx * nx);
 
-                int i = idx(x, y);
-                temp_[i] += sourceHeat_ * shape * dt;
-                smoke_[i] += sourceSmoke_ * smokiness_ * (0.7f + 0.3f * n) * shape * dt;
-                // Freshly emitted flame starts "young" and ages as it is advected away.
-                age_[i] = std::min(age_[i], 0.03f + 0.05f * (1.0f - n));
-                v_[i] -= sourceUpdraft_ * shape * dt;
-                u_[i] += ((n - 0.5f) * 2.0f) * turbulence_ * (0.8f + 0.5f * rise + flicker_) * shape * dt;
+                    float n = hash3(x, y, phase);
+                    float pulse = 0.82f + 0.18f * std::sin(0.19f * (float)phase + (float)x * 0.09f + (float)y * 0.04f);
+                    float shape = xWeight * yWeight * pulse;
+
+                    int i = idx(x, y);
+                    temp_[i] += sourceHeat_ * shape * dt;
+                    smoke_[i] += sourceSmoke_ * smokiness_ * (0.7f + 0.3f * n) * shape * dt;
+                    // Freshly emitted flame starts "young" and ages as it is advected away.
+                    age_[i] = std::min(age_[i], 0.03f + 0.05f * (1.0f - n));
+                    v_[i] -= sourceUpdraft_ * shape * dt;
+                    u_[i] += ((n - 0.5f) * 2.0f) * turbulence_ * (0.8f + 0.5f * rise + flicker_) * shape * dt;
+                }
             }
         }
     }
@@ -477,6 +515,7 @@ public:
         opts.push_back({"--timescale", "float", 0.1, 5.0, true, "Simulation speed multiplier", "1.0"});
         opts.push_back({"--source-x", "float", 0.0, 1.0, true, "Burner X position in normalized coordinates", "0.5"});
         opts.push_back({"--source-y", "float", 0.0, 1.0, true, "Burner Y position in normalized coordinates (0=top, 1=bottom)", "0.97"});
+        opts.push_back({"--sources", "string", 0, 0, false, "Multiple burner points as 'x1,y1;x2,y2;...'(normalized 0..1)", ""});
         opts.push_back({"--source-width", "float", 0.01, 1.0, true, "Base burner width as fraction of sim width", "0.02"});
         opts.push_back({"--source-height", "float", 0.01, 1.0, true, "Source region height as fraction of sim height", "0.12"});
         opts.push_back({"--source-spread", "float", 0.2, 4.0, true, "How quickly the flame widens above the base", "1.75"});
@@ -517,6 +556,7 @@ public:
         if (arg == "--timescale" && i + 1 < argc) { timeScale_ = std::atof(argv[++i]); return true; }
         if (arg == "--source-x" && i + 1 < argc) { sourceX_ = std::atof(argv[++i]); return true; }
         if (arg == "--source-y" && i + 1 < argc) { sourceY_ = std::atof(argv[++i]); return true; }
+        if (arg == "--sources" && i + 1 < argc) { parseSourcesSpec(argv[++i]); return true; }
         if (arg == "--source-width" && i + 1 < argc) { sourceWidth_ = std::atof(argv[++i]); return true; }
         if (arg == "--source-height" && i + 1 < argc) { sourceHeight_ = std::atof(argv[++i]); return true; }
         if (arg == "--source-spread" && i + 1 < argc) { sourceSpread_ = std::atof(argv[++i]); return true; }
@@ -564,6 +604,10 @@ public:
         sourceHeight_ = std::clamp(sourceHeight_, 0.01f, 1.0f);
         sourceSpread_ = std::clamp(sourceSpread_, 0.2f, 4.0f);
         timeScale_ = std::clamp(timeScale_, 0.1f, 5.0f);
+        for (auto& p : sourcePoints_) {
+            p.x = std::clamp(p.x, 0.0f, 1.0f);
+            p.y = std::clamp(p.y, 0.0f, 1.0f);
+        }
         flicker_ = std::clamp(flicker_, 0.0f, 3.0f);
         crosswind_ = std::clamp(crosswind_, 0.0f, 80.0f);
         initialAir_ = std::clamp(initialAir_, 0.0f, 80.0f);
