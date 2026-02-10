@@ -44,7 +44,7 @@ private:
     float sourceWidth_ = 0.02f;  // normalized base width
     float sourceHeight_ = 0.12f; // normalized source region height
     float sourceSpread_ = 1.75f; // width expansion above base
-    int burnerMode_ = 1;         // 0=gaussian, 1=tiki, 2=hybrid
+    int burnerMode_ = 1;         // 0=gaussian, 1=tiki, 2=hybrid, 3=cloud
     float sourceHeat_ = 3.2f;
     float sourceSmoke_ = 1.1f;
     float sourceUpdraft_ = 200.0f;
@@ -543,6 +543,63 @@ private:
             }
         };
 
+        auto injectCloud = [&](const SourcePoint& sp, float modeScale, const EmitterParams& ep) {
+            float sxNorm = (sp.x + simPadLeft_) / std::max(0.0001f, domainW);
+            float syNorm = (sp.y + simPadTop_) / std::max(0.0001f, domainH);
+            float cx = sxNorm * (simWidth_ - 1);
+            float sourceTop = syNorm * (simHeight_ - 1);
+            float halfWBase = std::max(1.0f, ep.sourceWidth * visibleSimW * 0.5f);
+            float regionH = std::max(2.0f, ep.sourceHeight * visibleSimH);
+
+            int puffCount = std::clamp((int)(4.0f + halfWBase * 0.35f), 4, 56);
+            for (int g = 0; g < puffCount; ++g) {
+                float r0 = hash3(g * 37 + phase * 3, g * 11 + 17, phase + 101);
+                float r1 = hash3(g * 53 + phase * 5, g * 29 + 7, phase + 211);
+                float r2 = hash3(g * 97 + phase * 2, g * 41 + 13, phase + 307);
+                float r3 = hash3(g * 19 + phase * 7, g * 67 + 23, phase + 401);
+
+                float gx = cx + (r0 * 2.0f - 1.0f) * halfWBase * (0.75f + 0.55f * r2);
+                float gy = sourceTop - r1 * regionH * (0.20f + 0.65f * r3);
+                float puffScale = 0.25f + 0.95f * r2;
+                float sx = std::max(1.0f, halfWBase * (0.12f + 0.28f * puffScale));
+                float sy = std::max(1.0f, regionH * (0.08f + 0.22f * puffScale));
+                float puff = (0.55f + 0.65f * r3) * modeScale;
+
+                // Occasional stronger puffs create larger billowing pockets.
+                if (r0 > 0.82f) puff *= 1.55f;
+
+                int minX = std::max(1, (int)std::floor(gx - 3.0f * sx));
+                int maxX = std::min(simWidth_ - 2, (int)std::ceil(gx + 3.0f * sx));
+                int minY = std::max(1, (int)std::floor(gy - 3.0f * sy));
+                int maxY = std::min(simHeight_ - 2, (int)std::ceil(gy + 3.0f * sy));
+
+                for (int y = minY; y <= maxY; ++y) {
+                    float dy = ((float)y - gy) / sy;
+                    float yW = std::exp(-0.7f * dy * dy);
+                    for (int x = minX; x <= maxX; ++x) {
+                        float dx = ((float)x - gx) / sx;
+                        float xW = std::exp(-0.7f * dx * dx);
+                        float shape = xW * yW;
+                        if (shape < 0.02f) continue;
+
+                        float ragged = 0.75f + 0.5f * hash3(x / 2 + g * 5, y / 2 + phase, g * 17 + phase * 3);
+                        float blob = shape * ragged * puff;
+                        int i = idx(x, y);
+
+                        smoke_[i] += ep.sourceSmoke * smokiness_ * 1.55f * blob * dt;
+                        temp_[i] += ep.sourceHeat * 0.42f * heatFlickerGain_ * blob * dt;
+                        age_[i] = std::min(age_[i], 0.03f + 0.08f * (1.0f - ragged));
+
+                        float center = std::max(0.0f, 1.0f - std::fabs(dx));
+                        v_[i] -= ep.sourceUpdraft * (0.28f + 0.38f * center) * blob * dt;
+
+                        float swirl = (hash3(x + g * 31, y + phase * 2, g * 13) - 0.5f) * 2.0f;
+                        u_[i] += ep.turbulence * 1.15f * swirl * (0.4f + 0.8f * shape) * blob * dt;
+                    }
+                }
+            }
+        };
+
         for (const auto& sp : activeSources) {
             EmitterParams ep = scaledEmitterParams(sp.scale);
             if (burnerMode_ == 1) {
@@ -550,6 +607,8 @@ private:
             } else if (burnerMode_ == 2) {
                 injectGaussian(sp, 0.65f, ep);
                 injectTiki(sp, 0.45f, ep);
+            } else if (burnerMode_ == 3) {
+                injectCloud(sp, 1.0f, ep);
             } else {
                 injectGaussian(sp, 1.0f, ep);
             }
@@ -788,7 +847,7 @@ public:
     }
 
     void printConfig(std::ostream& os) const override {
-        const char* burner = (burnerMode_ == 0) ? "gaussian" : (burnerMode_ == 1 ? "tiki" : "hybrid");
+        const char* burner = (burnerMode_ == 0) ? "gaussian" : (burnerMode_ == 1 ? "tiki" : (burnerMode_ == 2 ? "hybrid" : "cloud"));
         os << "burner: " << burner << "\n";
         os << "sim: " << simWidth_ << "x" << simHeight_ << ", substeps=" << substeps_
            << ", pressure_iters=" << pressureIters_ << ", diffusion_iters=" << diffusionIters_
@@ -840,7 +899,7 @@ public:
         opts.push_back({"--source-x", "float", -10.0, 10.0, true, "Burner X in visible-frame normalized coords (0..1 onscreen; <0/>1 offscreen)", "0.5"});
         opts.push_back({"--source-y", "float", -10.0, 10.0, true, "Burner Y in visible-frame normalized coords (0..1 onscreen; <0/>1 offscreen)", "0.97"});
         opts.push_back({"--sources", "string", 0, 0, false, "Multiple burner points as 'x1,y1,s1;x2,y2,s2;...' (scale s optional, default 1.0)", ""});
-        opts.push_back({"--burner", "string", 0, 0, false, "Burner model: gaussian, tiki, or hybrid", "tiki"});
+        opts.push_back({"--burner", "string", 0, 0, false, "Burner model: gaussian, tiki, hybrid, or cloud", "tiki"});
         opts.push_back({"--source-width", "float", 0.01, 1.0, true, "Base burner width as fraction of sim width", "0.02"});
         opts.push_back({"--source-height", "float", 0.01, 1.0, true, "Source region height as fraction of sim height", "0.12"});
         opts.push_back({"--source-spread", "float", 0.2, 4.0, true, "How quickly the flame widens above the base", "1.75"});
@@ -892,6 +951,7 @@ public:
             if (v == "gaussian") burnerMode_ = 0;
             else if (v == "tiki") burnerMode_ = 1;
             else if (v == "hybrid") burnerMode_ = 2;
+            else if (v == "cloud") burnerMode_ = 3;
             return true;
         }
         if (arg == "--source-width" && i + 1 < argc) { sourceWidth_ = std::atof(argv[++i]); return true; }
@@ -949,7 +1009,7 @@ public:
         sourceWidth_ = std::clamp(sourceWidth_, 0.01f, 1.0f);
         sourceHeight_ = std::clamp(sourceHeight_, 0.01f, 1.0f);
         sourceSpread_ = std::clamp(sourceSpread_, 0.2f, 4.0f);
-        burnerMode_ = std::clamp(burnerMode_, 0, 2);
+        burnerMode_ = std::clamp(burnerMode_, 0, 3);
         timeScale_ = std::clamp(timeScale_, 0.1f, 5.0f);
         for (auto& p : sourcePoints_) {
             p.x = std::clamp(p.x, -10.0f, 10.0f);
