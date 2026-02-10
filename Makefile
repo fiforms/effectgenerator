@@ -41,7 +41,7 @@ define copy_dll
 endef
 
 # Source files
-SOURCES = main.cpp effect_generator.cpp json_util.cpp snowflake_effect.cpp laser_effect.cpp loopfade_effect.cpp wave_effect.cpp starfield_effect.cpp twinkle_effect.cpp fireworks_effect.cpp sparkle_effect.cpp mist_effect.cpp flame_effect.cpp
+SOURCES = main.cpp effect_generator.cpp json_util.cpp snowflake_effect.cpp laser_effect.cpp loopfade_effect.cpp wave_effect.cpp starfield_effect.cpp twinkle_effect.cpp fireworks_effect.cpp sparkle_effect.cpp flame_effect.cpp
 
 # Object files
 OBJECTS = $(SOURCES:.cpp=.o)
