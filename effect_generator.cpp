@@ -11,6 +11,11 @@
 #include <cctype>
 #include <sstream>
 #include <vector>
+#include <deque>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
 
 #ifdef _WIN32
     #include <io.h>
@@ -667,6 +672,51 @@ bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationS
         return false;
     }
 
+    struct FramePacket {
+        std::vector<uint8_t> frame;
+        int frameIndex = 0;
+        bool end = false;
+    };
+
+    class FrameQueue {
+    public:
+        explicit FrameQueue(size_t capacity) : capacity_(capacity) {}
+
+        bool push(FramePacket&& packet) {
+            std::unique_lock<std::mutex> lock(mu_);
+            cvNotFull_.wait(lock, [&]() { return closed_ || queue_.size() < capacity_; });
+            if (closed_) return false;
+            queue_.push_back(std::move(packet));
+            cvNotEmpty_.notify_one();
+            return true;
+        }
+
+        bool pop(FramePacket& out) {
+            std::unique_lock<std::mutex> lock(mu_);
+            cvNotEmpty_.wait(lock, [&]() { return closed_ || !queue_.empty(); });
+            if (queue_.empty()) return false;
+            out = std::move(queue_.front());
+            queue_.pop_front();
+            cvNotFull_.notify_one();
+            return true;
+        }
+
+        void close() {
+            std::lock_guard<std::mutex> lock(mu_);
+            closed_ = true;
+            cvNotEmpty_.notify_all();
+            cvNotFull_.notify_all();
+        }
+
+    private:
+        std::mutex mu_;
+        std::condition_variable cvNotEmpty_;
+        std::condition_variable cvNotFull_;
+        std::deque<FramePacket> queue_;
+        const size_t capacity_;
+        bool closed_ = false;
+    };
+
     auto computeStageFade = [&](int frameIndex, bool stageHasBackground) -> float {
         if (!stageHasBackground) return 1.0f;
         if (autoDetectDuration) {
@@ -678,64 +728,126 @@ bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationS
         return getFadeMultiplier(frameIndex, totalFrames);
     };
 
-    int frameCount = 0;
-    while (frameCount < totalFrames) {
-        if (isVideo_ && hasBackground_) {
-            if (!readVideoFrame()) {
-                if (autoDetectDuration) {
-                    std::cout << "\nInput video ended at frame " << frameCount
-                              << " (" << frameCount / fps_ << " seconds)\n";
-                    break;
-                } else {
-                    std::cerr << "\nWarning: Video ended at frame " << frameCount
-                              << ", continuing with last frame\n";
-                }
-            }
-        }
+    const size_t queueCapacity = 8;
+    std::vector<std::unique_ptr<FrameQueue>> stageQueues;
+    stageQueues.reserve(effects.size());
+    for (size_t i = 0; i < effects.size(); ++i) {
+        stageQueues.push_back(std::make_unique<FrameQueue>(queueCapacity));
+    }
 
-        if (hasBackground_) {
-            std::copy(backgroundBuffer_.begin(), backgroundBuffer_.end(), frame_.begin());
-        } else {
-            std::fill(frame_.begin(), frame_.end(), 0);
-        }
+    std::atomic<bool> sourceEnded(false);
+    std::atomic<int> sourceFrameCount(0);
+    std::vector<std::thread> workers;
+    workers.reserve(effects.size());
 
-        bool dropFrame = false;
-        for (size_t stage = 0; stage < effects.size(); ++stage) {
+    for (size_t stage = 0; stage < effects.size(); ++stage) {
+        workers.emplace_back([&, stage]() {
             Effect* effect = effects[stage];
-            bool stageHasBackground = hasBackground_ || stage > 0;
-            float fadeMultiplier = computeStageFade(frameCount, stageHasBackground);
+            const bool stageHasBackground = hasBackground_ || stage > 0;
+            FrameQueue* outputQueue = stageQueues[stage].get();
+            FrameQueue* inputQueue = (stage == 0) ? nullptr : stageQueues[stage - 1].get();
 
-            effect->renderFrame(frame_, stageHasBackground, fadeMultiplier);
+            int stageFrameIndex = 0;
+            while (stageFrameIndex < totalFrames) {
+                std::vector<uint8_t> frame(width_ * height_ * 3);
+                int logicalFrame = stageFrameIndex;
 
-            bool stageDrop = false;
-            effect->postProcess(frame_, frameCount, autoDetectDuration ? frameCount : totalFrames, stageDrop);
-            effect->update();
+                if (stage == 0) {
+                    if (isVideo_ && hasBackground_) {
+                        if (!readVideoFrame()) {
+                            if (autoDetectDuration) {
+                                sourceEnded.store(true);
+                                break;
+                            }
+                        }
+                    }
 
-            if (stageDrop) {
-                dropFrame = true;
-                break;
-            }
-        }
+                    if (hasBackground_) {
+                        std::copy(backgroundBuffer_.begin(), backgroundBuffer_.end(), frame.begin());
+                    } else {
+                        std::fill(frame.begin(), frame.end(), 0);
+                    }
+                } else {
+                    FramePacket input;
+                    if (!inputQueue->pop(input)) {
+                        break;
+                    }
+                    if (input.end) {
+                        break;
+                    }
+                    logicalFrame = input.frameIndex;
+                    frame = std::move(input.frame);
+                }
 
-        if (!dropFrame) {
-            if (!hasBackground_ && fadeDuration_ > 0.0f && !autoDetectDuration) {
-                float fadeMultiplier = getFadeMultiplier(frameCount, totalFrames);
-                if (fadeMultiplier < 1.0f) {
-                    for (size_t j = 0; j < frame_.size(); ++j) {
-                        frame_[j] = (uint8_t)(frame_[j] * fadeMultiplier);
+                float fadeMultiplier = computeStageFade(logicalFrame, stageHasBackground);
+                effect->renderFrame(frame, stageHasBackground, fadeMultiplier);
+
+                bool dropFrame = false;
+                effect->postProcess(frame, logicalFrame, autoDetectDuration ? logicalFrame : totalFrames, dropFrame);
+                effect->update();
+
+                if (!dropFrame) {
+                    FramePacket out;
+                    out.frame = std::move(frame);
+                    out.frameIndex = logicalFrame;
+                    out.end = false;
+                    if (!outputQueue->push(std::move(out))) {
+                        break;
                     }
                 }
+
+                ++stageFrameIndex;
             }
-            fwrite(frame_.data(), 1, frame_.size(), ffmpegOutput_.stream);
+
+            if (stage == 0) {
+                sourceFrameCount.store(stageFrameIndex);
+            }
+
+            FramePacket endPacket;
+            endPacket.end = true;
+            outputQueue->push(std::move(endPacket));
+            outputQueue->close();
+        });
+    }
+
+    int writtenFrames = 0;
+    FrameQueue* finalQueue = stageQueues.back().get();
+    while (true) {
+        FramePacket packet;
+        if (!finalQueue->pop(packet)) {
+            break;
+        }
+        if (packet.end) {
+            break;
         }
 
-        ++frameCount;
-        if (frameCount % fps_ == 0) {
-            std::cout << "Progress: " << frameCount / fps_ << " seconds\r" << std::flush;
+        if (!hasBackground_ && fadeDuration_ > 0.0f && !autoDetectDuration) {
+            float fadeMultiplier = getFadeMultiplier(packet.frameIndex, totalFrames);
+            if (fadeMultiplier < 1.0f) {
+                for (size_t j = 0; j < packet.frame.size(); ++j) {
+                    packet.frame[j] = (uint8_t)(packet.frame[j] * fadeMultiplier);
+                }
+            }
+        }
+
+        fwrite(packet.frame.data(), 1, packet.frame.size(), ffmpegOutput_.stream);
+        ++writtenFrames;
+        if (writtenFrames % fps_ == 0) {
+            std::cout << "Progress: " << writtenFrames / fps_ << " seconds\r" << std::flush;
         }
     }
 
+    for (auto& worker : workers) {
+        if (worker.joinable()) worker.join();
+    }
+
     closeProcessPipe(ffmpegOutput_);
+
+    if (sourceEnded.load() && autoDetectDuration) {
+        int endedAt = sourceFrameCount.load();
+        std::cout << "\nInput video ended at frame " << endedAt
+                  << " (" << endedAt / fps_ << " seconds)\n";
+    }
 
     std::cout << "\nVideo saved to: " << outputFile << "\n";
     return true;
