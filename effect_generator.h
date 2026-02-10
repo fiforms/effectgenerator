@@ -10,6 +10,7 @@
 #include <memory>
 #include <cstdio>
 #include <cstdint>
+#include <ostream>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -91,6 +92,12 @@ public:
     // (useful for effects that need to align behavior to the overall length).
     virtual void setTotalFrames(int /*totalFrames*/) {
         // Default: do nothing
+    }
+
+    // Optional: print resolved effect configuration after parsing and
+    // initialization/clamping (used by --show mode).
+    virtual void printConfig(std::ostream& os) const {
+        (void)os;
     }
 };
 
