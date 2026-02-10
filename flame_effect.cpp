@@ -182,6 +182,10 @@ private:
             wobble_ = 0.06f;
             flicker_ = 0.45f;
             crosswind_ = 1.5f;
+            stir_ = 5.0f;
+            stirScale_ = 3.3f;
+            stirSpeed_ = 0.03f;
+            stirAnisotropy_ = 0.74f;
             initialAir_ = 10.0f;
             buoyancy_ = 120.0f;
             cooling_ = 0.65f;
@@ -204,11 +208,15 @@ private:
             sourceSpread_ = 1.9f;
             sourceHeat_ = 3.6f;
             sourceSmoke_ = 1.5f;
-            sourceUpdraft_ = 150.0f;
-            turbulence_ = 35.0f;
+            sourceUpdraft_ = 145.0f;
+            turbulence_ = 30.0f;
             wobble_ = 0.22f;
             flicker_ = 0.80f;
-            crosswind_ = 8.0f;
+            crosswind_ = 6.5f;
+            stir_ = 7.0f;
+            stirScale_ = 1.00f;
+            stirSpeed_ = 0.05f;
+            stirAnisotropy_ = 0.30f;
             initialAir_ = 30.0f;
             buoyancy_ = 180.0f;
             cooling_ = 0.38f;
@@ -231,16 +239,20 @@ private:
             sourceSpread_ = 2.2f;
             sourceHeat_ = 4.5f;
             sourceSmoke_ = 2.0f;
-            sourceUpdraft_ = 190.0f;
-            turbulence_ = 90.0f;
+            sourceUpdraft_ = 180.0f;
+            turbulence_ = 72.0f;
             wobble_ = 0.35f;
             flicker_ = 2.0f;
-            crosswind_ = 42.0f;
+            crosswind_ = 24.0f;
+            stir_ = 10.0f;
+            stirScale_ = 0.90f;
+            stirSpeed_ = 0.05f;
+            stirAnisotropy_ = 0.35f;
             initialAir_ = 65.0f;
             buoyancy_ = 240.0f;
             cooling_ = 0.30f;
             coolingAloftBoost_ = 0.35f;
-            smokeDissipation_ = 0.22f;
+            smokeDissipation_ = 0.26f;
             vorticity_ = 85.0f;
             flameIntensity_ = 1.55f;
             smokiness_ = 1.5f;
@@ -251,7 +263,7 @@ private:
             return true;
         }
         if (name == "smoketrail") {
-            burnerMode_ = 0; // gaussian
+            burnerMode_ = 3; // cloud
             pressureIters_ = 12;
             sourceWidth_ = 0.04f;
             sourceHeight_ = 0.08f;
@@ -263,6 +275,9 @@ private:
             wobble_ = 0.12f;
             flicker_ = 0.75f;
             crosswind_ = 20.0f;
+            stir_ = 15.0f;
+            stirScale_ = 1.20f;
+            stirSpeed_ = 0.10f;
             initialAir_ = 40.0f;
             buoyancy_ = 220.0f;
             cooling_ = 0.2f;
