@@ -37,6 +37,7 @@ void printUsage(const char* prog) {
     std::cout << "  --effect <name>           Select effect to use (required)\n";
     std::cout << "  --help-<effectname>       Show help for specific effect\n";
     std::cout << "  --version                 Show program version\n\n";
+    std::cout << "  --show                    Print resolved effect configuration and exit\n\n";
     std::cout << "Video Options:\n";
     std::cout << "  --width <int>             Video width (default: 1920)\n";
     std::cout << "  --height <int>            Video height (default: 1080)\n";
@@ -205,6 +206,7 @@ int main(int argc, char** argv) {
     float fadeDuration = 0.0f;
     float maxFadeRatio = 1.0f;
     std::string output = "";
+    bool showConfig = false;
     bool overwriteOutput = false;
     std::string backgroundImage;
     std::string backgroundVideo;
@@ -238,6 +240,8 @@ int main(int argc, char** argv) {
             audioBitrate = argv[++i];
         } else if (arg == "--output" && i + 1 < argc) {
             output = argv[++i];
+        } else if (arg == "--show") {
+            showConfig = true;
         } else if (arg == "--overwrite") {
             overwriteOutput = true;
         } else if (arg == "--background-image" && i + 1 < argc) {
@@ -261,6 +265,25 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (!effect) {
+        std::cerr << "Error: No effect specified. Use --effect <name>\n";
+        std::cerr << "Use --list-effects to see available effects.\n";
+        return 1;
+    }
+
+    if (showConfig) {
+        if (!effect->initialize(width, height, fps)) {
+            std::cerr << "Error: Failed to initialize effect for --show\n";
+            return 1;
+        }
+        std::cout << "Effect configuration (resolved):\n";
+        std::cout << "Effect: " << effect->getName() << "\n";
+        std::cout << "Resolution: " << width << "x" << height << "\n";
+        std::cout << "FPS: " << fps << "\n";
+        effect->printConfig(std::cout);
+        return 0;
+    }
+
     if (output.empty()) {
         std::cerr << "Error: Output filename is required. Use --output [filename]\n";
         return 1;
@@ -273,12 +296,6 @@ int main(int argc, char** argv) {
         std::cerr << "Error: Output file '" << output << "' already exists. Please choose a different name or pass --overwrite.\n";
         return 1;
       }
-    }
-    
-    if (!effect) {
-        std::cerr << "Error: No effect specified. Use --effect <name>\n";
-        std::cerr << "Use --list-effects to see available effects.\n";
-        return 1;
     }
     
     if (!backgroundImage.empty() && !backgroundVideo.empty()) {

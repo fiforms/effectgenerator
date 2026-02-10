@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <iostream>
 #include <random>
 #include <sstream>
 #include <thread>
@@ -194,6 +195,36 @@ private:
             ageRate_ = 1.3f;
             ageCooling_ = 0.60f;
             ageTaper_ = 1.0f;
+            return true;
+        }
+        if (name == "smoketrail") {
+            burnerMode_ = 0; // gaussian
+            pressureIters_ = 12;
+            sourceWidth_ = 0.04f;
+            sourceHeight_ = 0.08f;
+            sourceSpread_ = 1.5f;
+            sourceHeat_ = 6.0f;
+            sourceSmoke_ = 1.1f;
+            sourceUpdraft_ = 70.0f;
+            turbulence_ = 50.0f;
+            wobble_ = 0.12f;
+            flicker_ = 0.75f;
+            crosswind_ = 20.0f;
+            initialAir_ = 40.0f;
+            buoyancy_ = 220.0f;
+            cooling_ = 0.1f;
+            coolingAloftBoost_ = 0.01f;
+            smokeDissipation_ = 0.001f;
+            velocityDamping_ = 0.06f;
+            vorticity_ = 75.0f;
+            flameIntensity_ = 0.0f;  // smoke-only look
+            smokeIntensity_ = 1.2f;
+            smokiness_ = 1.6f;
+            smokeDarkness_ = 0.1f;
+            ageRate_ = 1.6f;
+            ageCooling_ = 0.68f;
+            agePower_ = 1.5f;
+            ageTaper_ = 1.1f;
             return true;
         }
         return false;
@@ -669,6 +700,39 @@ public:
         return "Authentic flame and smoke using 2D fluid dynamics on a configurable simulation grid";
     }
 
+    void printConfig(std::ostream& os) const override {
+        const char* burner = (burnerMode_ == 0) ? "gaussian" : (burnerMode_ == 1 ? "tiki" : "hybrid");
+        os << "burner: " << burner << "\n";
+        os << "sim: " << simWidth_ << "x" << simHeight_ << ", substeps=" << substeps_
+           << ", pressure_iters=" << pressureIters_ << ", diffusion_iters=" << diffusionIters_
+           << ", threads=" << threadsOpt_ << "\n";
+        os << "sources: ";
+        if (sourcePoints_.empty()) {
+            os << "[" << sourceX_ << "," << sourceY_ << "]";
+        } else {
+            for (size_t i = 0; i < sourcePoints_.size(); ++i) {
+                if (i) os << ";";
+                os << "[" << sourcePoints_[i].x << "," << sourcePoints_[i].y << "]";
+            }
+        }
+        os << "\n";
+        os << "source_width=" << sourceWidth_ << ", source_height=" << sourceHeight_
+           << ", source_spread=" << sourceSpread_ << ", source_heat=" << sourceHeat_
+           << ", source_smoke=" << sourceSmoke_ << ", source_updraft=" << sourceUpdraft_
+           << ", turbulence=" << turbulence_ << "\n";
+        os << "wobble=" << wobble_ << ", flicker=" << flicker_ << ", crosswind=" << crosswind_
+           << ", initial_air=" << initialAir_ << "\n";
+        os << "buoyancy=" << buoyancy_ << ", cooling=" << cooling_ << ", cooling_aloft=" << coolingAloftBoost_
+           << ", smoke_dissipation=" << smokeDissipation_ << ", velocity_damping=" << velocityDamping_
+           << ", vorticity=" << vorticity_ << "\n";
+        os << "flame_intensity=" << flameIntensity_ << ", flame_cutoff=" << flameCutoff_
+           << ", flame_sharpness=" << flameSharpness_ << "\n";
+        os << "smokiness=" << smokiness_ << ", smoke_intensity=" << smokeIntensity_
+           << ", smoke_darkness=" << smokeDarkness_ << "\n";
+        os << "age_rate=" << ageRate_ << ", age_cooling=" << ageCooling_
+           << ", age_power=" << agePower_ << ", age_taper=" << ageTaper_ << "\n";
+    }
+
     std::vector<EffectOption> getOptions() const override {
         using Opt = EffectOption;
         std::vector<Opt> opts;
@@ -679,7 +743,7 @@ public:
         opts.push_back({"--pressure-iters", "int", 4, 160, true, "Pressure solver iterations", "12"});
         opts.push_back({"--diffusion-iters", "int", 0, 8, true, "Scalar diffusion iterations", "1"});
         opts.push_back({"--timescale", "float", 0.1, 5.0, true, "Simulation speed multiplier", "1.0"});
-        opts.push_back({"--preset", "string", 0, 0, false, "Preset look: candle, campfire, bonfire", ""});
+        opts.push_back({"--preset", "string", 0, 0, false, "Preset look: candle, campfire, bonfire, smoketrail", ""});
         opts.push_back({"--source-x", "float", 0.0, 1.0, true, "Burner X position in normalized coordinates", "0.5"});
         opts.push_back({"--source-y", "float", 0.0, 1.0, true, "Burner Y position in normalized coordinates (0=top, 1=bottom)", "0.97"});
         opts.push_back({"--sources", "string", 0, 0, false, "Multiple burner points as 'x1,y1;x2,y2;...'(normalized 0..1)", ""});
