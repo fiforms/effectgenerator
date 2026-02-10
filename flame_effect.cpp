@@ -28,6 +28,10 @@ private:
     int simHeightOpt_ = 270;
     int simWidth_ = 0;
     int simHeight_ = 0;
+    float simPadLeft_ = 0.0f;
+    float simPadRight_ = 0.0f;
+    float simPadTop_ = 0.0f;
+    float simPadBottom_ = 0.0f;
 
     int substeps_ = 2;
     int pressureIters_ = 12;
@@ -37,6 +41,14 @@ private:
     float timeScale_ = 1.0f;
     float sourceX_ = 0.5f;       // normalized
     float sourceY_ = 0.97f;      // normalized (0=top, 1=bottom)
+    int sourceMode_ = 0;         // 0=static, 1=random, 2=wander
+    float sourceRegionX0_ = 0.0f;
+    float sourceRegionY0_ = 0.5f;
+    float sourceRegionX1_ = 1.0f;
+    float sourceRegionY1_ = 1.0f;
+    int wanderCount_ = 10;
+    float wanderIntervalMin_ = 0.2f;
+    float wanderIntervalMax_ = 3.0f;
     float sourceWidth_ = 0.02f;  // normalized base width
     float sourceHeight_ = 0.12f; // normalized source region height
     float sourceSpread_ = 1.75f; // width expansion above base
@@ -88,6 +100,8 @@ private:
     std::vector<float> divergence_;
     std::vector<float> curl_;
     std::vector<SourcePoint> sourcePoints_;
+    std::vector<SourcePoint> wanderPoints_;
+    std::vector<float> wanderTimers_;
 
     inline int idx(int x, int y) const { return y * simWidth_ + x; }
 
@@ -113,6 +127,52 @@ private:
         if (parsed.empty()) return false;
         sourcePoints_ = std::move(parsed);
         return true;
+    }
+
+    bool parseSourceRegionSpec(const std::string& spec) {
+        // Format: "x0,y0:x1,y1"
+        auto colon = spec.find(':');
+        if (colon == std::string::npos) return false;
+        std::string a = spec.substr(0, colon);
+        std::string b = spec.substr(colon + 1);
+        auto c0 = a.find(',');
+        auto c1 = b.find(',');
+        if (c0 == std::string::npos || c1 == std::string::npos) return false;
+
+        std::string x0s = a.substr(0, c0);
+        std::string y0s = a.substr(c0 + 1);
+        std::string x1s = b.substr(0, c1);
+        std::string y1s = b.substr(c1 + 1);
+
+        char* e0 = nullptr; char* e1 = nullptr; char* e2 = nullptr; char* e3 = nullptr;
+        float x0 = std::strtof(x0s.c_str(), &e0);
+        float y0 = std::strtof(y0s.c_str(), &e1);
+        float x1 = std::strtof(x1s.c_str(), &e2);
+        float y1 = std::strtof(y1s.c_str(), &e3);
+        if (e0 == x0s.c_str() || e1 == y0s.c_str() || e2 == x1s.c_str() || e3 == y1s.c_str()) return false;
+
+        sourceRegionX0_ = std::clamp(x0, 0.0f, 1.0f);
+        sourceRegionY0_ = std::clamp(y0, 0.0f, 1.0f);
+        sourceRegionX1_ = std::clamp(x1, 0.0f, 1.0f);
+        sourceRegionY1_ = std::clamp(y1, 0.0f, 1.0f);
+        return true;
+    }
+
+    SourcePoint randomPointInRegion() {
+        float x0 = std::min(sourceRegionX0_, sourceRegionX1_);
+        float x1 = std::max(sourceRegionX0_, sourceRegionX1_);
+        float y0 = std::min(sourceRegionY0_, sourceRegionY1_);
+        float y1 = std::max(sourceRegionY0_, sourceRegionY1_);
+        std::uniform_real_distribution<float> dx(x0, x1);
+        std::uniform_real_distribution<float> dy(y0, y1);
+        return {dx(rng_), dy(rng_)};
+    }
+
+    float randomWanderInterval() {
+        float lo = std::max(0.01f, std::min(wanderIntervalMin_, wanderIntervalMax_));
+        float hi = std::max(lo, std::max(wanderIntervalMin_, wanderIntervalMax_));
+        std::uniform_real_distribution<float> d(lo, hi);
+        return d(rng_);
     }
 
     bool applyPreset(const std::string& name) {
@@ -376,21 +436,51 @@ private:
     }
 
     void addSources(float dt) {
-        float halfWBase = std::max(0.6f, sourceWidth_ * simWidth_ * 0.5f);
+        float padX = std::max(0.0f, simPadLeft_) + std::max(0.0f, simPadRight_);
+        float padY = std::max(0.0f, simPadTop_) + std::max(0.0f, simPadBottom_);
+        float domainW = 1.0f + padX;
+        float domainH = 1.0f + padY;
+        float visibleSimW = simWidth_ / std::max(0.0001f, domainW);
+        float visibleSimH = simHeight_ / std::max(0.0001f, domainH);
+        float halfWBase = std::max(0.6f, sourceWidth_ * visibleSimW * 0.5f);
         int phase = frameCount_;
         std::vector<SourcePoint> activeSources;
         if (sourcePoints_.empty()) {
-            activeSources.push_back({sourceX_, sourceY_});
+            if (sourceMode_ == 1) {
+                activeSources.push_back(randomPointInRegion());
+            } else if (sourceMode_ == 2) {
+                if (wanderPoints_.empty()) {
+                    int n = std::max(1, wanderCount_);
+                    wanderPoints_.resize((size_t)n);
+                    wanderTimers_.resize((size_t)n, 0.0f);
+                    for (int i = 0; i < n; ++i) {
+                        wanderPoints_[(size_t)i] = randomPointInRegion();
+                        wanderTimers_[(size_t)i] = randomWanderInterval();
+                    }
+                }
+                for (size_t i = 0; i < wanderPoints_.size(); ++i) {
+                    wanderTimers_[i] -= dt;
+                    if (wanderTimers_[i] <= 0.0f) {
+                        wanderPoints_[i] = randomPointInRegion();
+                        wanderTimers_[i] = randomWanderInterval();
+                    }
+                }
+                activeSources = wanderPoints_;
+            } else {
+                activeSources.push_back({sourceX_, sourceY_});
+            }
         } else {
             activeSources = sourcePoints_;
         }
 
         auto injectGaussian = [&](const SourcePoint& sp, float modeScale) {
-            float cxBase = sp.x * (simWidth_ - 1);
+            float sxNorm = (sp.x + simPadLeft_) / std::max(0.0001f, domainW);
+            float syNorm = (sp.y + simPadTop_) / std::max(0.0001f, domainH);
+            float cxBase = sxNorm * (simWidth_ - 1);
             float flick = std::sin(frameCount_ * 0.27f) * 0.7f + std::sin(frameCount_ * 0.11f + 1.2f) * 0.4f;
             float cx = cxBase + flick * (1.0f + wobble_ * 2.0f);
-            float sourceY = sp.y * (simHeight_ - 1);
-            float sigmaY = std::max(0.9f, sourceHeight_ * simHeight_ * 0.24f);
+            float sourceY = syNorm * (simHeight_ - 1);
+            float sigmaY = std::max(0.9f, sourceHeight_ * visibleSimH * 0.24f);
             int yStart = std::max(1, (int)std::floor(sourceY - 3.0f * sigmaY));
             int yEnd = std::min(simHeight_ - 2, (int)std::ceil(sourceY + 1.5f * sigmaY));
             int minX = std::max(1, (int)std::floor(cx - halfWBase * 2.4f - 4.0f));
@@ -422,11 +512,13 @@ private:
         };
 
         auto injectTiki = [&](const SourcePoint& sp, float modeScale) {
-            float cxBase = sp.x * (simWidth_ - 1);
+            float sxNorm = (sp.x + simPadLeft_) / std::max(0.0001f, domainW);
+            float syNorm = (sp.y + simPadTop_) / std::max(0.0001f, domainH);
+            float cxBase = sxNorm * (simWidth_ - 1);
             float flick = std::sin(frameCount_ * 0.23f) * 0.6f + std::sin(frameCount_ * 0.13f + 0.8f) * 0.35f;
             float cx = cxBase + flick * (0.9f + wobble_ * 1.8f);
-            float sourceTop = sp.y * (simHeight_ - 1);
-            float regionH = std::max(2.0f, sourceHeight_ * simHeight_);
+            float sourceTop = syNorm * (simHeight_ - 1);
+            float regionH = std::max(2.0f, sourceHeight_ * visibleSimH);
             int yStart = std::max(1, (int)std::floor(sourceTop - regionH));
             int yEnd = std::min(simHeight_ - 2, (int)std::ceil(sourceTop));
             int minX = std::max(1, (int)std::floor(cx - halfWBase * (1.0f + sourceSpread_) - 3.0f));
@@ -703,12 +795,24 @@ public:
     void printConfig(std::ostream& os) const override {
         const char* burner = (burnerMode_ == 0) ? "gaussian" : (burnerMode_ == 1 ? "tiki" : "hybrid");
         os << "burner: " << burner << "\n";
+        const char* sourceMode = (sourceMode_ == 1) ? "random" : (sourceMode_ == 2 ? "wander" : "static");
         os << "sim: " << simWidth_ << "x" << simHeight_ << ", substeps=" << substeps_
            << ", pressure_iters=" << pressureIters_ << ", diffusion_iters=" << diffusionIters_
            << ", threads=" << threadsOpt_ << "\n";
+        os << "sim_padding: left=" << simPadLeft_ << ", right=" << simPadRight_
+           << ", top=" << simPadTop_ << ", bottom=" << simPadBottom_ << "\n";
+        os << "source_mode: " << sourceMode << ", source_region=[" << sourceRegionX0_ << "," << sourceRegionY0_
+           << ":" << sourceRegionX1_ << "," << sourceRegionY1_ << "], wander_count=" << wanderCount_
+           << ", wander_interval=[" << wanderIntervalMin_ << "," << wanderIntervalMax_ << "]\n";
         os << "sources: ";
         if (sourcePoints_.empty()) {
-            os << "[" << sourceX_ << "," << sourceY_ << "]";
+            if (sourceMode_ == 1) {
+                os << "(dynamic random in source_region)";
+            } else if (sourceMode_ == 2) {
+                os << "(dynamic wander emitters in source_region)";
+            } else {
+                os << "[" << sourceX_ << "," << sourceY_ << "]";
+            }
         } else {
             for (size_t i = 0; i < sourcePoints_.size(); ++i) {
                 if (i) os << ";";
@@ -736,16 +840,25 @@ public:
     std::vector<EffectOption> getOptions() const override {
         using Opt = EffectOption;
         std::vector<Opt> opts;
-        opts.push_back({"--sim-width", "int", 64, 4096, true, "Fluid simulation width (rendered via upscale/downscale)", "480"});
-        opts.push_back({"--sim-height", "int", 64, 4096, true, "Fluid simulation height (rendered via upscale/downscale)", "270"});
+        opts.push_back({"--sim-width", "int", 64, 4096, true, "Fluid simulation width (rendered via upscale/downscale)", "960"});
+        opts.push_back({"--sim-height", "int", 64, 4096, true, "Fluid simulation height (rendered via upscale/downscale)", "540"});
+        opts.push_back({"--sim-pad-left", "float", 0.0, 4.0, true, "Extra simulation width left of visible frame (in visible-frame widths)", "0.0"});
+        opts.push_back({"--sim-pad-right", "float", 0.0, 4.0, true, "Extra simulation width right of visible frame (in visible-frame widths)", "0.0"});
+        opts.push_back({"--sim-pad-top", "float", 0.0, 4.0, true, "Extra simulation height above visible frame (in visible-frame heights)", "0.0"});
+        opts.push_back({"--sim-pad-bottom", "float", 0.0, 4.0, true, "Extra simulation height below visible frame (in visible-frame heights)", "0.0"});
         opts.push_back({"--threads", "int", 0, 128, true, "Thread count for simulation passes (0 = auto)", "0"});
         opts.push_back({"--substeps", "int", 1, 8, true, "Simulation substeps per output frame", "2"});
         opts.push_back({"--pressure-iters", "int", 4, 160, true, "Pressure solver iterations", "12"});
         opts.push_back({"--diffusion-iters", "int", 0, 8, true, "Scalar diffusion iterations", "1"});
         opts.push_back({"--timescale", "float", 0.1, 5.0, true, "Simulation speed multiplier", "1.0"});
         opts.push_back({"--preset", "string", 0, 0, false, "Preset look: candle, campfire, bonfire, smoketrail", ""});
-        opts.push_back({"--source-x", "float", 0.0, 1.0, true, "Burner X position in normalized coordinates", "0.5"});
-        opts.push_back({"--source-y", "float", 0.0, 1.0, true, "Burner Y position in normalized coordinates (0=top, 1=bottom)", "0.97"});
+        opts.push_back({"--source-mode", "string", 0, 0, false, "Source placement: static, random, wander (ignored if --sources is set)", "static"});
+        opts.push_back({"--source-region", "string", 0, 0, false, "Region for random/wander sources: x0,y0:x1,y1", "0.0,0.5:1.0,1.0"});
+        opts.push_back({"--wander-count", "int", 1, 200, true, "Number of moving emitters in wander mode", "10"});
+        opts.push_back({"--wander-interval-min", "float", 0.01, 20.0, true, "Minimum seconds before a wander emitter jumps", "0.2"});
+        opts.push_back({"--wander-interval-max", "float", 0.01, 20.0, true, "Maximum seconds before a wander emitter jumps", "3.0"});
+        opts.push_back({"--source-x", "float", -10.0, 10.0, true, "Burner X in visible-frame normalized coords (0..1 onscreen; <0/>1 offscreen)", "0.5"});
+        opts.push_back({"--source-y", "float", -10.0, 10.0, true, "Burner Y in visible-frame normalized coords (0..1 onscreen; <0/>1 offscreen)", "0.97"});
         opts.push_back({"--sources", "string", 0, 0, false, "Multiple burner points as 'x1,y1;x2,y2;...'(normalized 0..1)", ""});
         opts.push_back({"--burner", "string", 0, 0, false, "Burner model: gaussian, tiki, or hybrid", "tiki"});
         opts.push_back({"--source-width", "float", 0.01, 1.0, true, "Base burner width as fraction of sim width", "0.02"});
@@ -782,12 +895,27 @@ public:
         std::string arg = argv[i];
         if (arg == "--sim-width" && i + 1 < argc) { simWidthOpt_ = std::atoi(argv[++i]); return true; }
         if (arg == "--sim-height" && i + 1 < argc) { simHeightOpt_ = std::atoi(argv[++i]); return true; }
+        if (arg == "--sim-pad-left" && i + 1 < argc) { simPadLeft_ = std::atof(argv[++i]); return true; }
+        if (arg == "--sim-pad-right" && i + 1 < argc) { simPadRight_ = std::atof(argv[++i]); return true; }
+        if (arg == "--sim-pad-top" && i + 1 < argc) { simPadTop_ = std::atof(argv[++i]); return true; }
+        if (arg == "--sim-pad-bottom" && i + 1 < argc) { simPadBottom_ = std::atof(argv[++i]); return true; }
         if (arg == "--threads" && i + 1 < argc) { threadsOpt_ = std::atoi(argv[++i]); return true; }
         if (arg == "--substeps" && i + 1 < argc) { substeps_ = std::atoi(argv[++i]); return true; }
         if (arg == "--pressure-iters" && i + 1 < argc) { pressureIters_ = std::atoi(argv[++i]); return true; }
         if (arg == "--diffusion-iters" && i + 1 < argc) { diffusionIters_ = std::atoi(argv[++i]); return true; }
         if (arg == "--timescale" && i + 1 < argc) { timeScale_ = std::atof(argv[++i]); return true; }
         if (arg == "--preset" && i + 1 < argc) { applyPreset(argv[++i]); return true; }
+        if (arg == "--source-mode" && i + 1 < argc) {
+            std::string v = argv[++i];
+            if (v == "static") sourceMode_ = 0;
+            else if (v == "random") sourceMode_ = 1;
+            else if (v == "wander") sourceMode_ = 2;
+            return true;
+        }
+        if (arg == "--source-region" && i + 1 < argc) { parseSourceRegionSpec(argv[++i]); return true; }
+        if (arg == "--wander-count" && i + 1 < argc) { wanderCount_ = std::atoi(argv[++i]); return true; }
+        if (arg == "--wander-interval-min" && i + 1 < argc) { wanderIntervalMin_ = std::atof(argv[++i]); return true; }
+        if (arg == "--wander-interval-max" && i + 1 < argc) { wanderIntervalMax_ = std::atof(argv[++i]); return true; }
         if (arg == "--source-x" && i + 1 < argc) { sourceX_ = std::atof(argv[++i]); return true; }
         if (arg == "--source-y" && i + 1 < argc) { sourceY_ = std::atof(argv[++i]); return true; }
         if (arg == "--sources" && i + 1 < argc) { parseSourcesSpec(argv[++i]); return true; }
@@ -840,16 +968,28 @@ public:
         substeps_ = std::clamp(substeps_, 1, 8);
         pressureIters_ = std::clamp(pressureIters_, 4, 160);
         diffusionIters_ = std::clamp(diffusionIters_, 0, 8);
-        sourceX_ = std::clamp(sourceX_, 0.0f, 1.0f);
-        sourceY_ = std::clamp(sourceY_, 0.0f, 1.0f);
+        sourceMode_ = std::clamp(sourceMode_, 0, 2);
+        simPadLeft_ = std::clamp(simPadLeft_, 0.0f, 4.0f);
+        simPadRight_ = std::clamp(simPadRight_, 0.0f, 4.0f);
+        simPadTop_ = std::clamp(simPadTop_, 0.0f, 4.0f);
+        simPadBottom_ = std::clamp(simPadBottom_, 0.0f, 4.0f);
+        sourceX_ = std::clamp(sourceX_, -10.0f, 10.0f);
+        sourceY_ = std::clamp(sourceY_, -10.0f, 10.0f);
+        sourceRegionX0_ = std::clamp(sourceRegionX0_, -10.0f, 10.0f);
+        sourceRegionY0_ = std::clamp(sourceRegionY0_, -10.0f, 10.0f);
+        sourceRegionX1_ = std::clamp(sourceRegionX1_, -10.0f, 10.0f);
+        sourceRegionY1_ = std::clamp(sourceRegionY1_, -10.0f, 10.0f);
+        wanderCount_ = std::clamp(wanderCount_, 1, 200);
+        wanderIntervalMin_ = std::clamp(wanderIntervalMin_, 0.01f, 20.0f);
+        wanderIntervalMax_ = std::clamp(wanderIntervalMax_, 0.01f, 20.0f);
         sourceWidth_ = std::clamp(sourceWidth_, 0.01f, 1.0f);
         sourceHeight_ = std::clamp(sourceHeight_, 0.01f, 1.0f);
         sourceSpread_ = std::clamp(sourceSpread_, 0.2f, 4.0f);
         burnerMode_ = std::clamp(burnerMode_, 0, 2);
         timeScale_ = std::clamp(timeScale_, 0.1f, 5.0f);
         for (auto& p : sourcePoints_) {
-            p.x = std::clamp(p.x, 0.0f, 1.0f);
-            p.y = std::clamp(p.y, 0.0f, 1.0f);
+            p.x = std::clamp(p.x, -10.0f, 10.0f);
+            p.y = std::clamp(p.y, -10.0f, 10.0f);
         }
         wobble_ = std::clamp(wobble_, 0.0f, 3.0f);
         flicker_ = std::clamp(flicker_, 0.0f, 1.5f);
@@ -864,6 +1004,8 @@ public:
         ageCooling_ = std::clamp(ageCooling_, 0.0f, 8.0f);
         agePower_ = std::clamp(agePower_, 0.5f, 4.0f);
         ageTaper_ = std::clamp(ageTaper_, 0.0f, 4.0f);
+        wanderPoints_.clear();
+        wanderTimers_.clear();
 
         size_t n = (size_t)simWidth_ * (size_t)simHeight_;
         u_.assign(n, 0.0f);
@@ -885,13 +1027,17 @@ public:
     }
 
     void renderFrame(std::vector<uint8_t>& frame, bool /*hasBackground*/, float fadeMultiplier) override {
-        float sxScale = (float)simWidth_ / std::max(1, width_);
-        float syScale = (float)simHeight_ / std::max(1, height_);
+        float padX = std::max(0.0f, simPadLeft_) + std::max(0.0f, simPadRight_);
+        float padY = std::max(0.0f, simPadTop_) + std::max(0.0f, simPadBottom_);
+        float domainW = 1.0f + padX;
+        float domainH = 1.0f + padY;
 
         for (int y = 0; y < height_; ++y) {
-            float sy = ((float)y + 0.5f) * syScale - 0.5f;
+            float vy = ((float)y + 0.5f) / std::max(1, height_);
+            float sy = ((vy + simPadTop_) / std::max(0.0001f, domainH)) * (simHeight_ - 1);
             for (int x = 0; x < width_; ++x) {
-                float sx = ((float)x + 0.5f) * sxScale - 0.5f;
+                float vx = ((float)x + 0.5f) / std::max(1, width_);
+                float sx = ((vx + simPadLeft_) / std::max(0.0001f, domainW)) * (simWidth_ - 1);
                 float t = sampleBilinear(temp_, sx, sy);
                 float s = sampleBilinear(smoke_, sx, sy);
                 float a = sampleBilinear(age_, sx, sy);
