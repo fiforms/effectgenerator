@@ -43,6 +43,7 @@ void printUsage(const char* prog) {
     std::cout << "  --height <int>            Video height (default: 1080)\n";
     std::cout << "  --fps <int>               Frames per second (default: 30)\n";
     std::cout << "  --duration <int>          Duration in seconds (default: 5)\n";
+    std::cout << "  --warmup <float>          Pre-run simulation time in seconds before first output frame (default: 0.0)\n";
     std::cout << "  --fade <float>            Fade in/out duration in seconds (default: 0.0)\n";
     std::cout << "  --max-fade <float>        Maximum opacity (0.0-1.0) of effect (default: 1.0)\n";
     std::cout << "  --background-image <path> Background image (JPG/PNG)\n";
@@ -203,6 +204,7 @@ int main(int argc, char** argv) {
     // Parse common arguments
     int width = 1920, height = 1080, fps = 30, duration = -1; // -1 means auto-detect
     int crf = 23;
+    float warmupDuration = 0.0f;
     float fadeDuration = 0.0f;
     float maxFadeRatio = 1.0f;
     std::string output = "";
@@ -228,6 +230,8 @@ int main(int argc, char** argv) {
             fps = std::atoi(argv[++i]);
         } else if (arg == "--duration" && i + 1 < argc) {
             duration = std::atoi(argv[++i]);
+        } else if (arg == "--warmup" && i + 1 < argc) {
+            warmupDuration = std::atof(argv[++i]);
         } else if (arg == "--fade" && i + 1 < argc) {
             fadeDuration = std::atof(argv[++i]);
         } else if (arg == "--max-fade" && i + 1 < argc) {
@@ -305,6 +309,7 @@ int main(int argc, char** argv) {
     
     // Create video generator (pass CLI CRF through)
     VideoGenerator generator(width, height, fps, fadeDuration, maxFadeRatio, crf, audioCodec, audioBitrate);
+    generator.setWarmupSeconds(warmupDuration);
     
     // Set background if specified
     if (!backgroundImage.empty()) {
@@ -341,6 +346,9 @@ int main(int argc, char** argv) {
         std::cout << "Duration: " << duration << "s\n";
     }
     std::cout << "Fade duration: " << fadeDuration << "s\n";
+    if (warmupDuration > 0.0f) {
+        std::cout << "Warmup duration: " << warmupDuration << "s\n";
+    }
     std::cout << "Max Fade Ratio: " << maxFadeRatio << "\n";
     if (!backgroundImage.empty()) {
         std::cout << "Background image: " << backgroundImage << "\n";
