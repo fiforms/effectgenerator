@@ -28,10 +28,10 @@ private:
     float simMultiplier_ = 2.0f;
     int simWidth_ = 0;
     int simHeight_ = 0;
-    float simPadLeft_ = 0.5f;
-    float simPadRight_ = 0.5f;
-    float simPadTop_ = 0.5f;
-    float simPadBottom_ = 0.5f;
+    float simPadLeft_ = 0.25f;
+    float simPadRight_ = 0.25f;
+    float simPadTop_ = 0.25f;
+    float simPadBottom_ = 0.25f;
 
     int substeps_ = 2;
     int pressureIters_ = 12;
@@ -282,6 +282,10 @@ private:
         }
         if (name == "mist") {
             burnerMode_ = 3; // cloud
+            simPadLeft_ = 0.5f;
+            simPadRight_ = 0.5f;
+            simPadTop_ = 0.5f;
+            simPadBottom_ = 0.5f;
             pressureIters_ = 16;
             sourceWidth_ = 0.18f;
             sourceHeight_ = 0.10f;
@@ -289,7 +293,7 @@ private:
             sourceHeat_ = 0.20f;
             sourceSmoke_ = 0.90f;
             sourceUpdraft_ = 6.0f;
-            turbulence_ = 28.0f;
+            turbulence_ = 65.0f;
             wobble_ = 0.30f;
             flicker_ = 0.0f;
             crosswind_ = 12.0f;
@@ -298,18 +302,18 @@ private:
             stirSpeed_ = 0.10f;
             stirAnisotropy_ = 0.74f;
             initialAir_ = 60.0f;
-            buoyancy_ = 20.0f;
-            cooling_ = 0.45f;
-            coolingAloftBoost_ = 0.15f;
-            smokeDissipation_ = 0.12f;
+            buoyancy_ = 25.0f;
+            cooling_ = 0.35f;
+            coolingAloftBoost_ = 0.0f;
+            smokeDissipation_ = 0.35f;
             velocityDamping_ = 0.05f;
-            vorticity_ = 70.0f;
+            vorticity_ = 80.0f;
             flameIntensity_ = 0.0f;  // smoke/mist only
             smokeIntensity_ = 0.52f;
             smokiness_ = 0.95f;
             smokeDarkness_ = 0.0f;
             ageRate_ = 0.25f;
-            ageCooling_ = 0.32f;
+            ageCooling_ = 0.22f;
             agePower_ = 1.0f;
             ageTaper_ = 0.9f;
 
@@ -321,6 +325,9 @@ private:
                 {0.62f, 1.15f, 0.95f},
                 {0.80f, 1.22f, 0.85f},
                 {0.95f, 1.18f, 0.70f},
+                {0.18f, -0.18f, 0.55f},
+                {0.52f, -0.24f, 0.65f},
+                {0.86f, -0.16f, 0.50f},
             };
             return true;
         }
@@ -968,10 +975,10 @@ public:
         using Opt = EffectOption;
         std::vector<Opt> opts;
         opts.push_back({"--sim-multiplier", "float", 0.25, 16.0, true, "Simulation size divisor after padding expansion (output*(1+padding)/multiplier)", "2.0"});
-        opts.push_back({"--sim-pad-left", "float", 0.0, 4.0, true, "Extra simulation width left of visible frame (in visible-frame widths)", "0.5"});
-        opts.push_back({"--sim-pad-right", "float", 0.0, 4.0, true, "Extra simulation width right of visible frame (in visible-frame widths)", "0.5"});
-        opts.push_back({"--sim-pad-top", "float", 0.0, 4.0, true, "Extra simulation height above visible frame (in visible-frame heights)", "0.5"});
-        opts.push_back({"--sim-pad-bottom", "float", 0.0, 4.0, true, "Extra simulation height below visible frame (in visible-frame heights)", "0.5"});
+        opts.push_back({"--sim-pad-left", "float", 0.0, 4.0, true, "Extra simulation width left of visible frame (in visible-frame widths)", "0.25"});
+        opts.push_back({"--sim-pad-right", "float", 0.0, 4.0, true, "Extra simulation width right of visible frame (in visible-frame widths)", "0.25"});
+        opts.push_back({"--sim-pad-top", "float", 0.0, 4.0, true, "Extra simulation height above visible frame (in visible-frame heights)", "0.25"});
+        opts.push_back({"--sim-pad-bottom", "float", 0.0, 4.0, true, "Extra simulation height below visible frame (in visible-frame heights)", "0.25"});
         opts.push_back({"--threads", "int", 0, 128, true, "Thread count for simulation passes (0 = auto)", "0"});
         opts.push_back({"--substeps", "int", 1, 8, true, "Simulation substeps per output frame", "2"});
         opts.push_back({"--pressure-iters", "int", 4, 160, true, "Pressure solver iterations", "12"});
