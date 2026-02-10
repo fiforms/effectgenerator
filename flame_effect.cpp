@@ -24,8 +24,7 @@ private:
     int fps_ = 30;
     int frameCount_ = 0;
 
-    int simWidthOpt_ = 480;
-    int simHeightOpt_ = 270;
+    float simMultiplier_ = 2.0f;
     int simWidth_ = 0;
     int simHeight_ = 0;
     float simPadLeft_ = 0.0f;
@@ -263,27 +262,27 @@ private:
             sourceWidth_ = 0.04f;
             sourceHeight_ = 0.08f;
             sourceSpread_ = 1.5f;
-            sourceHeat_ = 6.0f;
+            sourceHeat_ = 3.5f;
             sourceSmoke_ = 1.1f;
             sourceUpdraft_ = 70.0f;
-            turbulence_ = 50.0f;
+            turbulence_ = 80.0f;
             wobble_ = 0.12f;
             flicker_ = 0.75f;
             crosswind_ = 20.0f;
             initialAir_ = 40.0f;
             buoyancy_ = 220.0f;
-            cooling_ = 0.1f;
+            cooling_ = 0.2f;
             coolingAloftBoost_ = 0.01f;
             smokeDissipation_ = 0.001f;
             velocityDamping_ = 0.06f;
-            vorticity_ = 75.0f;
+            vorticity_ = 99.0f;
             flameIntensity_ = 0.0f;  // smoke-only look
-            smokeIntensity_ = 1.2f;
+            smokeIntensity_ = 0.7f;
             smokiness_ = 1.6f;
             smokeDarkness_ = 0.1f;
-            ageRate_ = 1.6f;
-            ageCooling_ = 0.68f;
-            agePower_ = 1.5f;
+            ageRate_ = 0.7f;
+            ageCooling_ = 0.25f;
+            agePower_ = 1.0f;
             ageTaper_ = 1.1f;
             return true;
         }
@@ -799,6 +798,7 @@ public:
         os << "sim: " << simWidth_ << "x" << simHeight_ << ", substeps=" << substeps_
            << ", pressure_iters=" << pressureIters_ << ", diffusion_iters=" << diffusionIters_
            << ", threads=" << threadsOpt_ << "\n";
+        os << "sim_multiplier=" << simMultiplier_ << "\n";
         os << "sim_padding: left=" << simPadLeft_ << ", right=" << simPadRight_
            << ", top=" << simPadTop_ << ", bottom=" << simPadBottom_ << "\n";
         os << "source_mode: " << sourceMode << ", source_region=[" << sourceRegionX0_ << "," << sourceRegionY0_
@@ -840,8 +840,7 @@ public:
     std::vector<EffectOption> getOptions() const override {
         using Opt = EffectOption;
         std::vector<Opt> opts;
-        opts.push_back({"--sim-width", "int", 64, 4096, true, "Fluid simulation width (rendered via upscale/downscale)", "960"});
-        opts.push_back({"--sim-height", "int", 64, 4096, true, "Fluid simulation height (rendered via upscale/downscale)", "540"});
+        opts.push_back({"--sim-multiplier", "float", 0.25, 16.0, true, "Simulation size divisor after padding expansion (output*(1+padding)/multiplier)", "2.0"});
         opts.push_back({"--sim-pad-left", "float", 0.0, 4.0, true, "Extra simulation width left of visible frame (in visible-frame widths)", "0.0"});
         opts.push_back({"--sim-pad-right", "float", 0.0, 4.0, true, "Extra simulation width right of visible frame (in visible-frame widths)", "0.0"});
         opts.push_back({"--sim-pad-top", "float", 0.0, 4.0, true, "Extra simulation height above visible frame (in visible-frame heights)", "0.0"});
@@ -877,7 +876,7 @@ public:
         opts.push_back({"--cooling-aloft", "float", 0.0, 4.0, true, "Extra cooling toward the top of the frame", "0.5"});
         opts.push_back({"--smoke-dissipation", "float", 0.0, 3.0, true, "Smoke dissipation rate", "0.5"});
         opts.push_back({"--velocity-damping", "float", 0.0, 3.0, true, "Velocity damping rate", "0.10"});
-        opts.push_back({"--vorticity", "float", 0.0, 100.0, true, "Vorticity confinement strength", "75.0"});
+        opts.push_back({"--vorticity", "float", 0.0, 200.0, true, "Vorticity confinement strength", "75.0"});
         opts.push_back({"--flame-intensity", "float", 0.0, 5.0, true, "Brightness of flame emission", "1.25"});
         opts.push_back({"--smoke-intensity", "float", 0.0, 3.0, true, "Opacity of smoke", "0.92"});
         opts.push_back({"--flame-cutoff", "float", 0.0, 1.5, true, "Heat rolloff scale for smooth flame response (lower = easier ignition)", "0.15"});
@@ -893,8 +892,7 @@ public:
 
     bool parseArgs(int argc, char** argv, int& i) override {
         std::string arg = argv[i];
-        if (arg == "--sim-width" && i + 1 < argc) { simWidthOpt_ = std::atoi(argv[++i]); return true; }
-        if (arg == "--sim-height" && i + 1 < argc) { simHeightOpt_ = std::atoi(argv[++i]); return true; }
+        if (arg == "--sim-multiplier" && i + 1 < argc) { simMultiplier_ = std::atof(argv[++i]); return true; }
         if (arg == "--sim-pad-left" && i + 1 < argc) { simPadLeft_ = std::atof(argv[++i]); return true; }
         if (arg == "--sim-pad-right" && i + 1 < argc) { simPadRight_ = std::atof(argv[++i]); return true; }
         if (arg == "--sim-pad-top" && i + 1 < argc) { simPadTop_ = std::atof(argv[++i]); return true; }
@@ -962,17 +960,21 @@ public:
         fps_ = std::max(1, fps);
         frameCount_ = 0;
 
-        simWidth_ = std::clamp(simWidthOpt_, 64, 4096);
-        simHeight_ = std::clamp(simHeightOpt_, 64, 4096);
-
         substeps_ = std::clamp(substeps_, 1, 8);
         pressureIters_ = std::clamp(pressureIters_, 4, 160);
         diffusionIters_ = std::clamp(diffusionIters_, 0, 8);
         sourceMode_ = std::clamp(sourceMode_, 0, 2);
+        simMultiplier_ = std::clamp(simMultiplier_, 0.25f, 16.0f);
         simPadLeft_ = std::clamp(simPadLeft_, 0.0f, 4.0f);
         simPadRight_ = std::clamp(simPadRight_, 0.0f, 4.0f);
         simPadTop_ = std::clamp(simPadTop_, 0.0f, 4.0f);
         simPadBottom_ = std::clamp(simPadBottom_, 0.0f, 4.0f);
+        float domainW = 1.0f + simPadLeft_ + simPadRight_;
+        float domainH = 1.0f + simPadTop_ + simPadBottom_;
+        float simWf = ((float)width_ * domainW) / std::max(0.0001f, simMultiplier_);
+        float simHf = ((float)height_ * domainH) / std::max(0.0001f, simMultiplier_);
+        simWidth_ = std::clamp((int)std::lround(simWf), 64, 4096);
+        simHeight_ = std::clamp((int)std::lround(simHf), 64, 4096);
         sourceX_ = std::clamp(sourceX_, -10.0f, 10.0f);
         sourceY_ = std::clamp(sourceY_, -10.0f, 10.0f);
         sourceRegionX0_ = std::clamp(sourceRegionX0_, -10.0f, 10.0f);

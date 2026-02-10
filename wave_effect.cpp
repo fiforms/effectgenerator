@@ -66,6 +66,7 @@ private:
     // Warmup (pre-simulate) to stabilize the field before first output
     float warmupSeconds_;
     int warmupFrames_;
+    float globalWarmupSeconds_;
     // Recorded spawns per warmup-frame index
     std::vector<std::vector<SpawnSpec>> warmupSpawns_;
     // If >0, when setTotalFrames() is called, we will replay warmupSpawns_
@@ -338,7 +339,7 @@ public:
                     displacementScale_(10.0f), useDisplacement_(true), waveDirection_(""),
           sourceSpawnProb_(0.06f), offscreenProb_(0.5f),
                     minLifetime_(2.0f), maxLifetime_(8.0f),
-                    rng_(std::random_device{}()), frameCount_(0), warmupSeconds_(0.0f), warmupFrames_(0), targetTotalFrames_(-1) {}
+                    rng_(std::random_device{}()), frameCount_(0), warmupSeconds_(0.0f), warmupFrames_(0), globalWarmupSeconds_(0.0f), targetTotalFrames_(-1) {}
     
     std::string getName() const override {
         return "waves";
@@ -432,21 +433,12 @@ public:
         height_ = height;
         fps_ = fps;
         frameCount_ = 0;
-
-        // If user didn't request an explicit warmup, but we were informed of
-        // the total frame count earlier via setTotalFrames(), default the
-        // warmup to (video_length - 5s) when the video is shorter than 65s.
-        if (warmupSeconds_ <= 0.0f && targetTotalFrames_ > 0) {
-            double totalSecs = (double)targetTotalFrames_ / (double)fps_;
-            //if (totalSecs >= 30.0 && totalSecs < 75.0) {
-                warmupSeconds_ = std::max(0.0, totalSecs + 30.0);
-                std::cout << "Defaulting warmup to " << warmupSeconds_ << "s based on video length\n";
-            //}
-        }
+        // Avoid duplicated pre-roll when global --warmup is active.
+        float internalWarmupSeconds = (globalWarmupSeconds_ > 0.0f) ? 0.0f : warmupSeconds_;
         
         // Prepare warmup recording if requested (allocate before initial sources)
-        if (warmupSeconds_ > 0.0f) {
-            warmupFrames_ = (int)std::round(warmupSeconds_ * fps_);
+        if (internalWarmupSeconds > 0.0f) {
+            warmupFrames_ = (int)std::round(internalWarmupSeconds * fps_);
             if (warmupFrames_ > 0) warmupSpawns_.clear(), warmupSpawns_.resize(warmupFrames_);
         } else {
             warmupFrames_ = 0;
@@ -503,8 +495,8 @@ public:
             std::cout << "Light angle: " << (lightAngle_ * 180.0f / kPi) << " degrees\n";
         }
         // Optional warmup: pre-simulate the system for a number of seconds to stabilize
-        if (warmupSeconds_ > 0.0f && warmupFrames_ > 0) {
-            std::cout << "Warming up simulation for " << warmupSeconds_ << "s (" << warmupFrames_ << " frames)";
+        if (internalWarmupSeconds > 0.0f && warmupFrames_ > 0) {
+            std::cout << "Warming up simulation for " << internalWarmupSeconds << "s (" << warmupFrames_ << " frames)";
             std::cout << "...\n";
 
             for (int i = 0; i < warmupFrames_; ++i) {
@@ -531,6 +523,10 @@ public:
     // lets the effect align behavior (e.g. replaying warmup spawns at the end).
     void setTotalFrames(int totalFrames) override {
         targetTotalFrames_ = totalFrames;
+    }
+
+    void setGlobalWarmupSeconds(float seconds) override {
+        globalWarmupSeconds_ = std::max(0.0f, seconds);
     }
     
     // Bilinear interpolation for smooth sampling

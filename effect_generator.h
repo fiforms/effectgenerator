@@ -94,6 +94,13 @@ public:
         // Default: do nothing
     }
 
+    // Optional hook: informs effect about global pre-render warmup seconds.
+    // Effects that have their own warmup mechanism can use this to avoid
+    // applying warmup twice.
+    virtual void setGlobalWarmupSeconds(float /*seconds*/) {
+        // Default: do nothing
+    }
+
     // Optional: print resolved effect configuration after parsing and
     // initialization/clamping (used by --show mode).
     virtual void printConfig(std::ostream& os) const {
@@ -167,6 +174,7 @@ private:
     int crf_;
     std::string audioCodec_;
     std::string audioBitrate_;
+    float warmupSeconds_;
     
     std::vector<uint8_t> frame_;
     std::vector<uint8_t> backgroundBuffer_;
@@ -201,6 +209,7 @@ public:
     
     void setFFmpegPath(const std::string& path) { ffmpegPath_ = path; }
     void setCRF(int crf) { crf_ = crf; }
+    void setWarmupSeconds(float seconds) { warmupSeconds_ = seconds; }
     bool setBackgroundImage(const char* filename);
     bool setBackgroundVideo(const char* filename);
     

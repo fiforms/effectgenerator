@@ -340,7 +340,7 @@ std::string VideoGenerator::findFFmpeg(std::string binaryName) {
 
 VideoGenerator::VideoGenerator(int width, int height, int fps, float fadeDuration, float maxFadeRatio, int crf, std::string audioCodec, std::string audioBitrate)
     : width_(width), height_(height), fps_(fps), fadeDuration_(fadeDuration), maxFadeRatio_(maxFadeRatio), crf_(crf), audioCodec_(audioCodec), audioBitrate_(audioBitrate),
-      hasBackground_(false), isVideo_(false) {
+      warmupSeconds_(0.0f), hasBackground_(false), isVideo_(false) {
     frame_.resize(width * height * 3);
     ffmpegPath_ = findFFmpeg("ffmpeg");
 }
@@ -648,10 +648,20 @@ bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outpu
     if (totalFrames != INT_MAX) {
         effect->setTotalFrames(totalFrames);
     }
+    effect->setGlobalWarmupSeconds(std::max(0.0f, warmupSeconds_));
 
     if (!effect->initialize(width_, height_, fps_)) {
         std::cerr << "Effect initialization failed\n";
         return false;
+    }
+
+    int warmupFrames = (int)std::round(std::max(0.0f, warmupSeconds_) * fps_);
+    if (warmupFrames > 0) {
+        std::cout << "Warmup: advancing simulation by " << warmupFrames
+                  << " frames (" << warmupSeconds_ << "s)\n";
+        for (int i = 0; i < warmupFrames; ++i) {
+            effect->update();
+        }
     }
 
     if (!startFFmpegOutput(outputFile)) {
