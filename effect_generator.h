@@ -213,6 +213,7 @@ public:
     bool setBackgroundImage(const char* filename);
     bool setBackgroundVideo(const char* filename);
     
+    bool generate(const std::vector<Effect*>& effects, int durationSec, const char* outputFile);
     bool generate(Effect* effect, int durationSec, const char* outputFile);
 };
 

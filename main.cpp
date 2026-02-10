@@ -7,6 +7,8 @@
 #include <string>
 #include <sstream>
 #include <cstdlib>
+#include <vector>
+#include <unordered_map>
 
 template <typename Options>
 void printHelp(const Options& opts) {
@@ -25,16 +27,49 @@ void printHelp(const Options& opts) {
     }
 }
 
+struct EffectInvocation {
+    std::string name;
+    std::unique_ptr<Effect> effect;
+};
+
+using EffectOptionMap = std::unordered_map<std::string, Effect::EffectOption>;
+
+EffectOptionMap makeOptionMap(const Effect& effect) {
+    EffectOptionMap out;
+    for (const auto& opt : effect.getOptions()) {
+        out[opt.name] = opt;
+    }
+    return out;
+}
+
+bool applyEffectOption(Effect& effect, const std::string& option, const std::string* value) {
+    std::vector<std::string> storage;
+    storage.push_back("effectgenerator");
+    storage.push_back(option);
+    if (value) storage.push_back(*value);
+
+    std::vector<char*> argvPtrs;
+    argvPtrs.reserve(storage.size());
+    for (auto& token : storage) argvPtrs.push_back(token.data());
+
+    int idx = 1;
+    bool ok = effect.parseArgs((int)argvPtrs.size(), argvPtrs.data(), idx);
+    if (!ok) return false;
+    if (value && idx != 2) return false;
+    if (!value && idx != 1) return false;
+    return true;
+}
+
 void printUsage(const char* prog) {
     std::cout << "Effect Generator " << getEffectGeneratorVersion() << " - Video Effects Tool\n";
     std::cout << "Find the latest version at https://github.com/fiforms/effectgenerator\n";
     std::cout << "============================\n\n";
-    std::cout << "Usage: " << prog << " --effect [effect] [options] --output [outputfile]\n\n";
+    std::cout << "Usage: " << prog << " [global-options] --effect <effect> [effect-options] [--effect <effect> [effect-options] ...] --output [outputfile]\n\n";
     std::cout << "General Options:\n";
     std::cout << "  --help                    Show this help\n";
     std::cout << "  --list-effects            List all available effects\n";
     std::cout << "      --json                When combined with --list-effects or --help-<effectname>, output JSON\n";
-    std::cout << "  --effect <name>           Select effect to use (required)\n";
+    std::cout << "  --effect <name>           Add an effect stage (required; repeatable, order-sensitive)\n";
     std::cout << "  --help-<effectname>       Show help for specific effect\n";
     std::cout << "  --version                 Show program version\n\n";
     std::cout << "  --show                    Print resolved effect configuration and exit\n\n";
@@ -61,8 +96,8 @@ void printUsage(const char* prog) {
     std::cout << "Examples:\n";
     std::cout << "  " << prog << " --list-effects\n";
     std::cout << "  " << prog << " --help-snowflake\n";
-    std::cout << "  " << prog << " --effect snowflake --flakes 200 --duration 10\n";
-    std::cout << "  " << prog << " --effect snowflake --background-video input.mp4 --output snowy.mp4\n";
+    std::cout << "  " << prog << " --effect snowflake --flakes 200 --duration 10 --output snow.mp4\n";
+    std::cout << "  " << prog << " --fade 2 --background-video input.mp4 --effect laser --rays 10 --effect sparkle --output layered.mp4\n";
 }
 
 void listEffects() {
@@ -212,16 +247,57 @@ int main(int argc, char** argv) {
     bool overwriteOutput = false;
     std::string backgroundImage;
     std::string backgroundVideo;
-    std::string effectName;
-    std::string ffmpegPath;
     std::string audioCodec;
     std::string audioBitrate = "";
-    
-    std::unique_ptr<Effect> effect;
-    
+
+    std::vector<EffectInvocation> stages;
+    std::vector<EffectOptionMap> stageOptionMaps;
+    int currentStage = -1;
+
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        
+
+        if (arg == "--effect" && i + 1 < argc) {
+            std::string effectName = argv[++i];
+            auto effect = EffectFactory::instance().create(effectName);
+            if (!effect) {
+                std::cerr << "Unknown effect: " << effectName << "\n";
+                std::cerr << "Use --list-effects to see available effects.\n";
+                return 1;
+            }
+
+            currentStage = (int)stages.size();
+            stageOptionMaps.push_back(makeOptionMap(*effect));
+            stages.push_back({effectName, std::move(effect)});
+            continue;
+        }
+
+        if (currentStage >= 0) {
+            auto optIt = stageOptionMaps[currentStage].find(arg);
+            if (optIt != stageOptionMaps[currentStage].end()) {
+                const auto& opt = optIt->second;
+                std::string value;
+                const std::string* valuePtr = nullptr;
+                if (opt.type != "boolean") {
+                    if (i + 1 >= argc) {
+                        std::cerr << "Missing value for option " << arg
+                                  << " in effect stage " << (currentStage + 1)
+                                  << " (" << stages[currentStage].name << ")\n";
+                        return 1;
+                    }
+                    value = argv[++i];
+                    valuePtr = &value;
+                }
+                if (!applyEffectOption(*stages[currentStage].effect, arg, valuePtr)) {
+                    std::cerr << "Failed to parse option " << arg
+                              << " in effect stage " << (currentStage + 1)
+                              << " (" << stages[currentStage].name << ")\n";
+                    return 1;
+                }
+                continue;
+            }
+        }
+
         if (arg == "--width" && i + 1 < argc) {
             width = std::atoi(argv[++i]);
         } else if (arg == "--height" && i + 1 < argc) {
@@ -252,39 +328,36 @@ int main(int argc, char** argv) {
             backgroundImage = argv[++i];
         } else if (arg == "--background-video" && i + 1 < argc) {
             backgroundVideo = argv[++i];
-        } else if (arg == "--effect" && i + 1 < argc) {
-            effectName = argv[++i];
-            effect = EffectFactory::instance().create(effectName);
-            if (!effect) {
-                std::cerr << "Unknown effect: " << effectName << "\n";
-                std::cerr << "Use --list-effects to see available effects.\n";
-                return 1;
-            }
-        } else if (effect && effect->parseArgs(argc, argv, i)) {
-            // Effect parsed its own argument
-            continue;
         } else {
             std::cerr << "Unknown or invalid argument: " << arg << "\n";
+            if (currentStage >= 0) {
+                std::cerr << "Note: option did not match declared options for effect stage "
+                          << (currentStage + 1) << " (" << stages[currentStage].name << ")\n";
+            }
             return 1;
         }
     }
 
-    if (!effect) {
+    if (stages.empty()) {
         std::cerr << "Error: No effect specified. Use --effect <name>\n";
         std::cerr << "Use --list-effects to see available effects.\n";
         return 1;
     }
 
     if (showConfig) {
-        if (!effect->initialize(width, height, fps)) {
-            std::cerr << "Error: Failed to initialize effect for --show\n";
-            return 1;
-        }
-        std::cout << "Effect configuration (resolved):\n";
-        std::cout << "Effect: " << effect->getName() << "\n";
+        std::cout << "Effect pipeline configuration (resolved):\n";
         std::cout << "Resolution: " << width << "x" << height << "\n";
         std::cout << "FPS: " << fps << "\n";
-        effect->printConfig(std::cout);
+        for (size_t i = 0; i < stages.size(); ++i) {
+            auto& stage = stages[i];
+            if (!stage.effect->initialize(width, height, fps)) {
+                std::cerr << "Error: Failed to initialize effect stage " << (i + 1)
+                          << " (" << stage.effect->getName() << ") for --show\n";
+                return 1;
+            }
+            std::cout << "\nStage " << (i + 1) << ": " << stage.effect->getName() << "\n";
+            stage.effect->printConfig(std::cout);
+        }
         return 0;
     }
 
@@ -337,7 +410,12 @@ int main(int argc, char** argv) {
     // Print configuration
     std::cout << "Effect Generator\n";
     std::cout << "================\n";
-    std::cout << "Effect: " << effect->getName() << "\n";
+    std::cout << "Effects: ";
+    for (size_t i = 0; i < stages.size(); ++i) {
+        if (i) std::cout << " -> ";
+        std::cout << stages[i].effect->getName();
+    }
+    std::cout << "\n";
     std::cout << "Resolution: " << width << "x" << height << "\n";
     std::cout << "FPS: " << fps << "\n";
     if (duration == -1) {
@@ -358,8 +436,14 @@ int main(int argc, char** argv) {
     }
     std::cout << "Output: " << output << "\n\n";
     
+    std::vector<Effect*> pipeline;
+    pipeline.reserve(stages.size());
+    for (auto& stage : stages) {
+        pipeline.push_back(stage.effect.get());
+    }
+
     // Generate video
-    if (!generator.generate(effect.get(), duration, output.c_str())) {
+    if (!generator.generate(pipeline, duration, output.c_str())) {
         std::cerr << "Error: Video generation failed\n";
         return 1;
     }

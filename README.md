@@ -85,6 +85,9 @@ effectgenerator --effect snowflake --background-image winter.jpg --output snowy.
 # Overlay on video
 effectgenerator --effect snowflake --background-video input.mp4 --fade 2.0 --output output.mp4
 
+# Layer multiple effects (order matters)
+effectgenerator --fade 2 --background-video input.mp4 --effect laser --rays 10 --rotation 2 --effect sparkle --effect loopfade --output layered.mp4
+
 # Custom resolution and FPS
 effectgenerator --effect snowflake --width 3840 --height 2160 --fps 60  --output faster.mp4
 ```

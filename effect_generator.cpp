@@ -616,12 +616,11 @@ float VideoGenerator::getFadeMultiplier(int frameNumber, int totalFrames) {
     return maxFadeRatio_;
 }
 
-bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outputFile) {
-    if (!effect) return false;
-    
+bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationSec, const char* outputFile) {
+    if (effects.empty()) return false;
+
     std::cout << "FFmpeg path: " << ffmpegPath_ << "\n";
-    
-    // If durationSec <= 0 and we have a video background, try to probe the video's length
+
     int totalFrames = 0;
     if (isVideo_ && durationSec <= 0) {
         double secs = probeVideoDuration(backgroundVideo_.c_str());
@@ -629,7 +628,6 @@ bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outpu
             totalFrames = (int)std::round(secs * fps_);
             std::cout << "Auto-detected background video duration: " << secs << "s (" << totalFrames << " frames)\n";
         } else {
-            // Fallback: generate until input video ends (previous behavior)
             totalFrames = INT_MAX;
             std::cout << "Could not probe video duration; generating until input video ends...\n";
         }
@@ -637,116 +635,114 @@ bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outpu
         totalFrames = fps_ * durationSec;
         std::cout << "Generating " << totalFrames << " frames (" << durationSec << "s @ " << fps_ << " fps)...\n";
     } else {
-        // No duration and not a video background: default to 0 frames (no output)
         std::cerr << "No duration provided and no background video available\n";
         return false;
     }
-    // If probing failed we set totalFrames to INT_MAX to indicate "run until input ends"
     bool autoDetectDuration = (totalFrames == INT_MAX);
 
-    // Inform effect about total frame count when known (needed for warmup replay)
-    if (totalFrames != INT_MAX) {
-        effect->setTotalFrames(totalFrames);
-    }
-    effect->setGlobalWarmupSeconds(std::max(0.0f, warmupSeconds_));
-
-    if (!effect->initialize(width_, height_, fps_)) {
-        std::cerr << "Effect initialization failed\n";
-        return false;
+    for (Effect* effect : effects) {
+        if (!effect) return false;
+        if (totalFrames != INT_MAX) {
+            effect->setTotalFrames(totalFrames);
+        }
+        effect->setGlobalWarmupSeconds(std::max(0.0f, warmupSeconds_));
+        if (!effect->initialize(width_, height_, fps_)) {
+            std::cerr << "Effect initialization failed\n";
+            return false;
+        }
     }
 
     int warmupFrames = (int)std::round(std::max(0.0f, warmupSeconds_) * fps_);
     if (warmupFrames > 0) {
         std::cout << "Warmup: advancing simulation by " << warmupFrames
                   << " frames (" << warmupSeconds_ << "s)\n";
-        for (int i = 0; i < warmupFrames; ++i) {
-            effect->update();
+        for (Effect* effect : effects) {
+            for (int i = 0; i < warmupFrames; ++i) {
+                effect->update();
+            }
         }
     }
 
     if (!startFFmpegOutput(outputFile)) {
         return false;
     }
-    
+
+    auto computeStageFade = [&](int frameIndex, bool stageHasBackground) -> float {
+        if (!stageHasBackground) return 1.0f;
+        if (autoDetectDuration) {
+            int fadeFrames = (int)(fadeDuration_ * fps_);
+            if (fadeFrames <= 0) return 1.0f;
+            if (frameIndex < fadeFrames) return (float)frameIndex / fadeFrames;
+            return 1.0f;
+        }
+        return getFadeMultiplier(frameIndex, totalFrames);
+    };
+
     int frameCount = 0;
-    
     while (frameCount < totalFrames) {
-        // Read video frame if needed
         if (isVideo_ && hasBackground_) {
             if (!readVideoFrame()) {
                 if (autoDetectDuration) {
-                    std::cout << "\nInput video ended at frame " << frameCount 
+                    std::cout << "\nInput video ended at frame " << frameCount
                               << " (" << frameCount / fps_ << " seconds)\n";
-                    break; // End of video, stop gracefully
+                    break;
                 } else {
-                    std::cerr << "\nWarning: Video ended at frame " << frameCount 
+                    std::cerr << "\nWarning: Video ended at frame " << frameCount
                               << ", continuing with last frame\n";
                 }
             }
         }
-        
-        // Prepare frame with background
+
         if (hasBackground_) {
             std::copy(backgroundBuffer_.begin(), backgroundBuffer_.end(), frame_.begin());
         } else {
             std::fill(frame_.begin(), frame_.end(), 0);
         }
-        
-        // Render effect
-        // For auto-detected duration, use fade based on current frame count
-        float fadeMultiplier;
-        if (hasBackground_) {
-            if (autoDetectDuration) {
-                // Calculate fade on-the-fly
-                int fadeFrames = (int)(fadeDuration_ * fps_);
-                if (frameCount < fadeFrames) {
-                    fadeMultiplier = (float)frameCount / fadeFrames;
-                } else {
-                    fadeMultiplier = 1.0f;
-                    // Note: fade-out won't work with auto-detect since we don't know when video ends
-                }
-            } else {
-                fadeMultiplier = getFadeMultiplier(frameCount, totalFrames);
-            }
-        } else {
-            fadeMultiplier = 1.0f;
-        }
-        
-        effect->renderFrame(frame_, hasBackground_, fadeMultiplier);
-        
-        // Allow effect to do post-processing with frame index knowledge
-        // The effect can set `dropFrame` to true to omit writing this frame.
-        // Note: for auto-detect, we use frameCount as both current and "total" since we don't know end yet
-        bool dropFrame = false;
-        effect->postProcess(frame_, frameCount, autoDetectDuration ? frameCount : totalFrames, dropFrame);
 
-        // Apply fade to entire frame for black background mode
-        if (!hasBackground_ && fadeDuration_ > 0.0f && !autoDetectDuration) {
-            fadeMultiplier = getFadeMultiplier(frameCount, totalFrames);
-            if (fadeMultiplier < 1.0f) {
-                for (size_t j = 0; j < frame_.size(); j++) {
-                    frame_[j] = (uint8_t)(frame_[j] * fadeMultiplier);
-                }
+        bool dropFrame = false;
+        for (size_t stage = 0; stage < effects.size(); ++stage) {
+            Effect* effect = effects[stage];
+            bool stageHasBackground = hasBackground_ || stage > 0;
+            float fadeMultiplier = computeStageFade(frameCount, stageHasBackground);
+
+            effect->renderFrame(frame_, stageHasBackground, fadeMultiplier);
+
+            bool stageDrop = false;
+            effect->postProcess(frame_, frameCount, autoDetectDuration ? frameCount : totalFrames, stageDrop);
+            effect->update();
+
+            if (stageDrop) {
+                dropFrame = true;
+                break;
             }
         }
-        
-        // Write frame unless the effect requested it be dropped
+
         if (!dropFrame) {
+            if (!hasBackground_ && fadeDuration_ > 0.0f && !autoDetectDuration) {
+                float fadeMultiplier = getFadeMultiplier(frameCount, totalFrames);
+                if (fadeMultiplier < 1.0f) {
+                    for (size_t j = 0; j < frame_.size(); ++j) {
+                        frame_[j] = (uint8_t)(frame_[j] * fadeMultiplier);
+                    }
+                }
+            }
             fwrite(frame_.data(), 1, frame_.size(), ffmpegOutput_.stream);
         }
-        
-        // Update effect state
-        effect->update();
-        
-        frameCount++;
-        
+
+        ++frameCount;
         if (frameCount % fps_ == 0) {
             std::cout << "Progress: " << frameCount / fps_ << " seconds\r" << std::flush;
         }
     }
-    
+
     closeProcessPipe(ffmpegOutput_);
-    
+
     std::cout << "\nVideo saved to: " << outputFile << "\n";
     return true;
+}
+
+bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outputFile) {
+    if (!effect) return false;
+    std::vector<Effect*> effects{effect};
+    return generate(effects, durationSec, outputFile);
 }
