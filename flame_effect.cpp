@@ -28,10 +28,10 @@ private:
     float simMultiplier_ = 2.0f;
     int simWidth_ = 0;
     int simHeight_ = 0;
-    float simPadLeft_ = 0.0f;
-    float simPadRight_ = 0.0f;
-    float simPadTop_ = 0.0f;
-    float simPadBottom_ = 0.0f;
+    float simPadLeft_ = 0.5f;
+    float simPadRight_ = 0.5f;
+    float simPadTop_ = 0.5f;
+    float simPadBottom_ = 0.5f;
 
     int substeps_ = 2;
     int pressureIters_ = 12;
@@ -52,6 +52,10 @@ private:
     float wobble_ = 0.1f;
     float flicker_ = 0.75f;      // heat flicker amount (0..1+)
     float crosswind_ = 6.0f;
+    float stir_ = 0.0f;
+    float stirScale_ = 1.8f;
+    float stirSpeed_ = 0.08f;
+    float stirAnisotropy_ = 0.55f; // 0=equal XY, 1=mostly horizontal
     float initialAir_ = 40.0f;
 
     float buoyancy_ = 220.0f;
@@ -276,6 +280,50 @@ private:
             ageTaper_ = 1.1f;
             return true;
         }
+        if (name == "mist") {
+            burnerMode_ = 3; // cloud
+            pressureIters_ = 16;
+            sourceWidth_ = 0.18f;
+            sourceHeight_ = 0.10f;
+            sourceSpread_ = 1.4f;
+            sourceHeat_ = 0.20f;
+            sourceSmoke_ = 0.90f;
+            sourceUpdraft_ = 6.0f;
+            turbulence_ = 28.0f;
+            wobble_ = 0.30f;
+            flicker_ = 0.0f;
+            crosswind_ = 12.0f;
+            stir_ = 28.0f;
+            stirScale_ = 1.20f;
+            stirSpeed_ = 0.10f;
+            stirAnisotropy_ = 0.74f;
+            initialAir_ = 60.0f;
+            buoyancy_ = 20.0f;
+            cooling_ = 0.45f;
+            coolingAloftBoost_ = 0.15f;
+            smokeDissipation_ = 0.12f;
+            velocityDamping_ = 0.05f;
+            vorticity_ = 70.0f;
+            flameIntensity_ = 0.0f;  // smoke/mist only
+            smokeIntensity_ = 0.52f;
+            smokiness_ = 0.95f;
+            smokeDarkness_ = 0.0f;
+            ageRate_ = 0.25f;
+            ageCooling_ = 0.32f;
+            agePower_ = 1.0f;
+            ageTaper_ = 0.9f;
+
+            // Wide, staggered cloud emitters to fill the scene with lateral wafting mist.
+            sourcePoints_ = {
+                {0.08f, 1.20f, 0.75f},
+                {0.26f, 1.16f, 0.95f},
+                {0.44f, 1.24f, 1.05f},
+                {0.62f, 1.15f, 0.95f},
+                {0.80f, 1.22f, 0.85f},
+                {0.95f, 1.18f, 0.70f},
+            };
+            return true;
+        }
         return false;
     }
 
@@ -378,7 +426,7 @@ private:
     }
 
     void applyAmbientAirMotion(float dt) {
-        if (crosswind_ <= 0.0f && wobble_ <= 0.0f) return;
+        if (crosswind_ <= 0.0f && wobble_ <= 0.0f && stir_ <= 0.0f) return;
         float t = frameCount_ / std::max(1.0f, (float)fps_);
         parallelRows(1, simHeight_ - 1, [&](int y0, int y1) {
             for (int y = y0; y < y1; ++y) {
@@ -388,8 +436,40 @@ private:
                 for (int x = 1; x < simWidth_ - 1; ++x) {
                     int i = idx(x, y);
                     float localNoise = (hash3(x, y, frameCount_ + 1234) - 0.5f) * 2.0f;
-                    u_[i] += (globalWind + localNoise * wobble_ * 4.0f) * dt;
-                    v_[i] += localNoise * wobble_ * 1.2f * dt;
+
+                    float ambientU = globalWind + localNoise * wobble_ * 4.0f;
+                    float ambientV = localNoise * wobble_ * 1.2f;
+
+                    // Room-scale stirring: coherent low-frequency flow that slowly evolves over time.
+                    if (stir_ > 0.0f) {
+                        float nx = x / std::max(1.0f, (float)(simWidth_ - 1));
+                        float sx = nx * stirScale_;
+                        float sy = ny * stirScale_;
+                        float st = t * stirSpeed_;
+
+                        float p0 = 6.2831853f * (sx + 0.47f * sy + st);
+                        float p1 = 6.2831853f * (0.61f * sx - sy - st * 0.72f + 0.17f);
+                        float p2 = 6.2831853f * (0.32f * sx + 0.85f * sy + st * 0.41f + 0.39f);
+                        float p3 = 6.2831853f * (0.88f * sx - 0.24f * sy - st * 0.53f + 0.61f);
+
+                        float baseU = 0.70f * std::sin(p0) + 0.45f * std::cos(p1);
+                        float baseV = 0.70f * std::cos(p2) + 0.45f * std::sin(p3);
+
+                        float eddy = (hash3(x / 6, y / 6, frameCount_ / 8 + 202) - 0.5f) * 2.0f;
+                        baseU += 0.22f * eddy;
+                        baseV += 0.14f * eddy;
+
+                        float aniso = std::clamp(stirAnisotropy_, 0.0f, 1.0f);
+                        float stirU = baseU * (0.85f + 1.10f * aniso);
+                        float stirV = baseV * (1.05f - 0.65f * aniso);
+                        float band = 0.45f + 0.55f * (0.25f + 0.75f * flowBand);
+
+                        ambientU += stir_ * stirU * band;
+                        ambientV += stir_ * stirV * band;
+                    }
+
+                    u_[i] += ambientU * dt;
+                    v_[i] += ambientV * dt;
                 }
             }
         });
@@ -870,6 +950,8 @@ public:
            << ", source_smoke=" << sourceSmoke_ << ", source_updraft=" << sourceUpdraft_
            << ", turbulence=" << turbulence_ << "\n";
         os << "wobble=" << wobble_ << ", flicker=" << flicker_ << ", crosswind=" << crosswind_
+           << ", stir=" << stir_ << ", stir_scale=" << stirScale_
+           << ", stir_speed=" << stirSpeed_ << ", stir_anisotropy=" << stirAnisotropy_
            << ", initial_air=" << initialAir_ << "\n";
         os << "buoyancy=" << buoyancy_ << ", cooling=" << cooling_ << ", cooling_aloft=" << coolingAloftBoost_
            << ", smoke_dissipation=" << smokeDissipation_ << ", velocity_damping=" << velocityDamping_
@@ -886,16 +968,16 @@ public:
         using Opt = EffectOption;
         std::vector<Opt> opts;
         opts.push_back({"--sim-multiplier", "float", 0.25, 16.0, true, "Simulation size divisor after padding expansion (output*(1+padding)/multiplier)", "2.0"});
-        opts.push_back({"--sim-pad-left", "float", 0.0, 4.0, true, "Extra simulation width left of visible frame (in visible-frame widths)", "0.0"});
-        opts.push_back({"--sim-pad-right", "float", 0.0, 4.0, true, "Extra simulation width right of visible frame (in visible-frame widths)", "0.0"});
-        opts.push_back({"--sim-pad-top", "float", 0.0, 4.0, true, "Extra simulation height above visible frame (in visible-frame heights)", "0.0"});
-        opts.push_back({"--sim-pad-bottom", "float", 0.0, 4.0, true, "Extra simulation height below visible frame (in visible-frame heights)", "0.0"});
+        opts.push_back({"--sim-pad-left", "float", 0.0, 4.0, true, "Extra simulation width left of visible frame (in visible-frame widths)", "0.5"});
+        opts.push_back({"--sim-pad-right", "float", 0.0, 4.0, true, "Extra simulation width right of visible frame (in visible-frame widths)", "0.5"});
+        opts.push_back({"--sim-pad-top", "float", 0.0, 4.0, true, "Extra simulation height above visible frame (in visible-frame heights)", "0.5"});
+        opts.push_back({"--sim-pad-bottom", "float", 0.0, 4.0, true, "Extra simulation height below visible frame (in visible-frame heights)", "0.5"});
         opts.push_back({"--threads", "int", 0, 128, true, "Thread count for simulation passes (0 = auto)", "0"});
         opts.push_back({"--substeps", "int", 1, 8, true, "Simulation substeps per output frame", "2"});
         opts.push_back({"--pressure-iters", "int", 4, 160, true, "Pressure solver iterations", "12"});
         opts.push_back({"--diffusion-iters", "int", 0, 8, true, "Scalar diffusion iterations", "1"});
         opts.push_back({"--timescale", "float", 0.1, 5.0, true, "Simulation speed multiplier", "1.0"});
-        opts.push_back({"--preset", "string", 0, 0, false, "Preset look: smallcandle, candle, campfire, bonfire, smoketrail", ""});
+        opts.push_back({"--preset", "string", 0, 0, false, "Preset look: smallcandle, candle, campfire, bonfire, smoketrail, mist", ""});
         opts.push_back({"--source-x", "float", -10.0, 10.0, true, "Burner X in visible-frame normalized coords (0..1 onscreen; <0/>1 offscreen)", "0.5"});
         opts.push_back({"--source-y", "float", -10.0, 10.0, true, "Burner Y in visible-frame normalized coords (0..1 onscreen; <0/>1 offscreen)", "0.97"});
         opts.push_back({"--sources", "string", 0, 0, false, "Multiple burner points as 'x1,y1,s1;x2,y2,s2;...' (scale s optional, default 1.0)", ""});
@@ -910,6 +992,10 @@ public:
         opts.push_back({"--wobble", "float", 0.0, 3.0, true, "Base side-to-side source wobble / airflow jitter", "0.1"});
         opts.push_back({"--flicker", "float", 0.0, 1.5, true, "Heat flicker amount (random drop/rebuild cycles)", "0.75"});
         opts.push_back({"--crosswind", "float", 0.0, 80.0, true, "Ambient lateral air motion strength", "6.0"});
+        opts.push_back({"--stir", "float", 0.0, 80.0, true, "Large-scale room stirring airflow strength", "0.0"});
+        opts.push_back({"--stir-scale", "float", 0.2, 6.0, true, "Spatial scale of room stirring (lower = larger eddies)", "1.8"});
+        opts.push_back({"--stir-speed", "float", 0.0, 1.0, true, "Temporal speed of room stirring field", "0.08"});
+        opts.push_back({"--stir-anisotropy", "float", 0.0, 1.0, true, "Bias stirring toward horizontal flow", "0.55"});
         opts.push_back({"--initial-air", "float", 0.0, 80.0, true, "Initial random airflow strength", "40.0"});
         opts.push_back({"--buoyancy", "float", 0.0, 300.0, true, "Buoyancy from temperature", "220.0"});
         opts.push_back({"--cooling", "float", 0.0, 3.0, true, "Temperature cooling rate", "0.45"});
@@ -964,6 +1050,10 @@ public:
         if (arg == "--wobble" && i + 1 < argc) { wobble_ = std::atof(argv[++i]); return true; }
         if (arg == "--flicker" && i + 1 < argc) { flicker_ = std::atof(argv[++i]); return true; }
         if (arg == "--crosswind" && i + 1 < argc) { crosswind_ = std::atof(argv[++i]); return true; }
+        if (arg == "--stir" && i + 1 < argc) { stir_ = std::atof(argv[++i]); return true; }
+        if (arg == "--stir-scale" && i + 1 < argc) { stirScale_ = std::atof(argv[++i]); return true; }
+        if (arg == "--stir-speed" && i + 1 < argc) { stirSpeed_ = std::atof(argv[++i]); return true; }
+        if (arg == "--stir-anisotropy" && i + 1 < argc) { stirAnisotropy_ = std::atof(argv[++i]); return true; }
         if (arg == "--initial-air" && i + 1 < argc) { initialAir_ = std::atof(argv[++i]); return true; }
         if (arg == "--buoyancy" && i + 1 < argc) { buoyancy_ = std::atof(argv[++i]); return true; }
         if (arg == "--cooling" && i + 1 < argc) { cooling_ = std::atof(argv[++i]); return true; }
@@ -1019,6 +1109,10 @@ public:
         wobble_ = std::clamp(wobble_, 0.0f, 3.0f);
         flicker_ = std::clamp(flicker_, 0.0f, 1.5f);
         crosswind_ = std::clamp(crosswind_, 0.0f, 80.0f);
+        stir_ = std::clamp(stir_, 0.0f, 80.0f);
+        stirScale_ = std::clamp(stirScale_, 0.2f, 6.0f);
+        stirSpeed_ = std::clamp(stirSpeed_, 0.0f, 1.0f);
+        stirAnisotropy_ = std::clamp(stirAnisotropy_, 0.0f, 1.0f);
         initialAir_ = std::clamp(initialAir_, 0.0f, 80.0f);
         coolingAloftBoost_ = std::clamp(coolingAloftBoost_, 0.0f, 4.0f);
         flameCutoff_ = std::clamp(flameCutoff_, 0.0f, 1.5f);
