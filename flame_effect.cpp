@@ -17,6 +17,7 @@ private:
     struct SourcePoint {
         float x = 0.5f;
         float y = 0.97f;
+        float scale = 1.0f;
     };
 
     int width_ = 0;
@@ -112,16 +113,34 @@ private:
         std::string token;
         while (std::getline(ss, token, ';')) {
             if (token.empty()) continue;
-            auto comma = token.find(',');
-            if (comma == std::string::npos) continue;
-            std::string xs = token.substr(0, comma);
-            std::string ys = token.substr(comma + 1);
+            auto c0 = token.find(',');
+            if (c0 == std::string::npos) continue;
+            auto c1 = token.find(',', c0 + 1);
+            std::string xs = token.substr(0, c0);
+            std::string ys;
+            std::string sscl;
+            if (c1 == std::string::npos) {
+                ys = token.substr(c0 + 1);
+            } else {
+                ys = token.substr(c0 + 1, c1 - c0 - 1);
+                sscl = token.substr(c1 + 1);
+            }
             char* endX = nullptr;
             char* endY = nullptr;
             float x = std::strtof(xs.c_str(), &endX);
             float y = std::strtof(ys.c_str(), &endY);
             if (endX == xs.c_str() || endY == ys.c_str()) continue;
-            parsed.push_back({std::clamp(x, 0.0f, 1.0f), std::clamp(y, 0.0f, 1.0f)});
+            float scl = 1.0f;
+            if (!sscl.empty()) {
+                char* endS = nullptr;
+                float rawScale = std::strtof(sscl.c_str(), &endS);
+                if (endS != sscl.c_str()) scl = rawScale;
+            }
+            parsed.push_back({
+                std::clamp(x, -10.0f, 10.0f),
+                std::clamp(y, -10.0f, 10.0f),
+                std::clamp(scl, 0.0f, 8.0f)
+            });
         }
         if (parsed.empty()) return false;
         sourcePoints_ = std::move(parsed);
@@ -175,6 +194,33 @@ private:
     }
 
     bool applyPreset(const std::string& name) {
+        if (name == "smallcandle") {
+            burnerMode_ = 0; // gaussian
+            pressureIters_ = 16;
+            sourceWidth_ = 0.008f;
+            sourceHeight_ = 0.075f;
+            sourceSpread_ = 1.05f;
+            sourceHeat_ = 1.9f;
+            sourceSmoke_ = 0.20f;
+            sourceUpdraft_ = 110.0f;
+            turbulence_ = 6.0f;
+            wobble_ = 0.05f;
+            flicker_ = 0.38f;
+            crosswind_ = 1.2f;
+            initialAir_ = 8.0f;
+            buoyancy_ = 105.0f;
+            cooling_ = 0.72f;
+            coolingAloftBoost_ = 1.0f;
+            smokeDissipation_ = 0.90f;
+            vorticity_ = 28.0f;
+            flameIntensity_ = 1.05f;
+            smokiness_ = 0.10f;
+            smokeDarkness_ = 0.04f;
+            ageRate_ = 1.25f;
+            ageCooling_ = 1.35f;
+            ageTaper_ = 1.65f;
+            return true;
+        }
         if (name == "candle") {
             burnerMode_ = 0; // gaussian
             pressureIters_ = 16;
@@ -435,13 +481,38 @@ private:
     }
 
     void addSources(float dt) {
+        struct EmitterParams {
+            float sourceWidth;
+            float sourceHeight;
+            float sourceSpread;
+            float sourceHeat;
+            float sourceSmoke;
+            float sourceUpdraft;
+            float turbulence;
+            float wobble;
+        };
+
+        auto scaledEmitterParams = [&](float sourceScale) {
+            // Source scale multiplies the emitter knobs that differ between candle and smallcandle.
+            float s = std::clamp(sourceScale, 0.0f, 8.0f);
+            EmitterParams p;
+            p.sourceWidth = sourceWidth_ * s;
+            p.sourceHeight = sourceHeight_ * s;
+            p.sourceSpread = sourceSpread_ * s;
+            p.sourceHeat = sourceHeat_ * s;
+            p.sourceSmoke = sourceSmoke_ * s;
+            p.sourceUpdraft = sourceUpdraft_ * s;
+            p.turbulence = turbulence_ * s;
+            p.wobble = wobble_ * s;
+            return p;
+        };
+
         float padX = std::max(0.0f, simPadLeft_) + std::max(0.0f, simPadRight_);
         float padY = std::max(0.0f, simPadTop_) + std::max(0.0f, simPadBottom_);
         float domainW = 1.0f + padX;
         float domainH = 1.0f + padY;
         float visibleSimW = simWidth_ / std::max(0.0001f, domainW);
         float visibleSimH = simHeight_ / std::max(0.0001f, domainH);
-        float halfWBase = std::max(0.6f, sourceWidth_ * visibleSimW * 0.5f);
         int phase = frameCount_;
         std::vector<SourcePoint> activeSources;
         if (sourcePoints_.empty()) {
@@ -466,20 +537,21 @@ private:
                 }
                 activeSources = wanderPoints_;
             } else {
-                activeSources.push_back({sourceX_, sourceY_});
+                activeSources.push_back({sourceX_, sourceY_, 1.0f});
             }
         } else {
             activeSources = sourcePoints_;
         }
 
-        auto injectGaussian = [&](const SourcePoint& sp, float modeScale) {
+        auto injectGaussian = [&](const SourcePoint& sp, float modeScale, const EmitterParams& ep) {
             float sxNorm = (sp.x + simPadLeft_) / std::max(0.0001f, domainW);
             float syNorm = (sp.y + simPadTop_) / std::max(0.0001f, domainH);
+            float halfWBase = std::max(0.6f, ep.sourceWidth * visibleSimW * 0.5f);
             float cxBase = sxNorm * (simWidth_ - 1);
             float flick = std::sin(frameCount_ * 0.27f) * 0.7f + std::sin(frameCount_ * 0.11f + 1.2f) * 0.4f;
-            float cx = cxBase + flick * (1.0f + wobble_ * 2.0f);
+            float cx = cxBase + flick * (1.0f + ep.wobble * 2.0f);
             float sourceY = syNorm * (simHeight_ - 1);
-            float sigmaY = std::max(0.9f, sourceHeight_ * visibleSimH * 0.24f);
+            float sigmaY = std::max(0.9f, ep.sourceHeight * visibleSimH * 0.24f);
             int yStart = std::max(1, (int)std::floor(sourceY - 3.0f * sigmaY));
             int yEnd = std::min(simHeight_ - 2, (int)std::ceil(sourceY + 1.5f * sigmaY));
             int minX = std::max(1, (int)std::floor(cx - halfWBase * 2.4f - 4.0f));
@@ -489,7 +561,7 @@ private:
                 float dy = ((float)y - sourceY) / sigmaY;
                 float yWeight = std::exp(-0.5f * dy * dy);
                 float rise = std::clamp((sourceY - (float)y) / std::max(1.0f, sigmaY * 2.4f), 0.0f, 1.0f);
-                float plumeHalfW = halfWBase * (1.0f + sourceSpread_ * 0.55f * rise);
+                float plumeHalfW = halfWBase * (1.0f + ep.sourceSpread * 0.55f * rise);
                 for (int x = minX; x <= maxX; ++x) {
                     float dx = std::fabs((float)x - cx);
                     float nx = dx / (plumeHalfW + 1e-4f);
@@ -501,31 +573,32 @@ private:
                     float shape = xWeight * yWeight * pulse * modeScale;
 
                     int i = idx(x, y);
-                    temp_[i] += sourceHeat_ * heatFlickerGain_ * shape * dt;
-                    smoke_[i] += sourceSmoke_ * smokiness_ * (0.7f + 0.3f * n) * shape * dt;
+                    temp_[i] += ep.sourceHeat * heatFlickerGain_ * shape * dt;
+                    smoke_[i] += ep.sourceSmoke * smokiness_ * (0.7f + 0.3f * n) * shape * dt;
                     age_[i] = std::min(age_[i], 0.03f + 0.05f * (1.0f - n));
-                    v_[i] -= sourceUpdraft_ * shape * dt;
-                    u_[i] += ((n - 0.5f) * 2.0f) * turbulence_ * (0.8f + 0.5f * rise + wobble_) * shape * dt;
+                    v_[i] -= ep.sourceUpdraft * shape * dt;
+                    u_[i] += ((n - 0.5f) * 2.0f) * ep.turbulence * (0.8f + 0.5f * rise + ep.wobble) * shape * dt;
                 }
             }
         };
 
-        auto injectTiki = [&](const SourcePoint& sp, float modeScale) {
+        auto injectTiki = [&](const SourcePoint& sp, float modeScale, const EmitterParams& ep) {
             float sxNorm = (sp.x + simPadLeft_) / std::max(0.0001f, domainW);
             float syNorm = (sp.y + simPadTop_) / std::max(0.0001f, domainH);
+            float halfWBase = std::max(0.6f, ep.sourceWidth * visibleSimW * 0.5f);
             float cxBase = sxNorm * (simWidth_ - 1);
             float flick = std::sin(frameCount_ * 0.23f) * 0.6f + std::sin(frameCount_ * 0.13f + 0.8f) * 0.35f;
-            float cx = cxBase + flick * (0.9f + wobble_ * 1.8f);
+            float cx = cxBase + flick * (0.9f + ep.wobble * 1.8f);
             float sourceTop = syNorm * (simHeight_ - 1);
-            float regionH = std::max(2.0f, sourceHeight_ * visibleSimH);
+            float regionH = std::max(2.0f, ep.sourceHeight * visibleSimH);
             int yStart = std::max(1, (int)std::floor(sourceTop - regionH));
             int yEnd = std::min(simHeight_ - 2, (int)std::ceil(sourceTop));
-            int minX = std::max(1, (int)std::floor(cx - halfWBase * (1.0f + sourceSpread_) - 3.0f));
-            int maxX = std::min(simWidth_ - 2, (int)std::ceil(cx + halfWBase * (1.0f + sourceSpread_) + 3.0f));
+            int minX = std::max(1, (int)std::floor(cx - halfWBase * (1.0f + ep.sourceSpread) - 3.0f));
+            int maxX = std::min(simWidth_ - 2, (int)std::ceil(cx + halfWBase * (1.0f + ep.sourceSpread) + 3.0f));
 
             for (int y = yStart; y <= yEnd; ++y) {
                 float h = (float)(yEnd - y) / std::max(1, yEnd - yStart);
-                float plumeHalfW = halfWBase * (0.40f + sourceSpread_ * h);
+                float plumeHalfW = halfWBase * (0.40f + ep.sourceSpread * h);
                 float yWeight = 0.45f + 0.55f * (1.0f - h);
                 for (int x = minX; x <= maxX; ++x) {
                     float dx = std::fabs((float)x - cx);
@@ -538,24 +611,25 @@ private:
                     float shape = xWeight * yWeight * pulse * modeScale;
 
                     int i = idx(x, y);
-                    temp_[i] += sourceHeat_ * heatFlickerGain_ * shape * dt;
-                    smoke_[i] += sourceSmoke_ * smokiness_ * (0.65f + 0.35f * n) * shape * dt;
+                    temp_[i] += ep.sourceHeat * heatFlickerGain_ * shape * dt;
+                    smoke_[i] += ep.sourceSmoke * smokiness_ * (0.65f + 0.35f * n) * shape * dt;
                     age_[i] = std::min(age_[i], 0.02f + 0.04f * (1.0f - n));
                     // Tiki base gives a slightly stronger base push.
-                    v_[i] -= sourceUpdraft_ * 1.15f * shape * dt;
-                    u_[i] += ((n - 0.5f) * 2.0f) * turbulence_ * (0.7f + 0.8f * h + wobble_) * shape * dt;
+                    v_[i] -= ep.sourceUpdraft * 1.15f * shape * dt;
+                    u_[i] += ((n - 0.5f) * 2.0f) * ep.turbulence * (0.7f + 0.8f * h + ep.wobble) * shape * dt;
                 }
             }
         };
 
         for (const auto& sp : activeSources) {
+            EmitterParams ep = scaledEmitterParams(sp.scale);
             if (burnerMode_ == 1) {
-                injectTiki(sp, 1.0f);
+                injectTiki(sp, 1.0f, ep);
             } else if (burnerMode_ == 2) {
-                injectGaussian(sp, 0.65f);
-                injectTiki(sp, 0.45f);
+                injectGaussian(sp, 0.65f, ep);
+                injectTiki(sp, 0.45f, ep);
             } else {
-                injectGaussian(sp, 1.0f);
+                injectGaussian(sp, 1.0f, ep);
             }
         }
     }
@@ -811,12 +885,12 @@ public:
             } else if (sourceMode_ == 2) {
                 os << "(dynamic wander emitters in source_region)";
             } else {
-                os << "[" << sourceX_ << "," << sourceY_ << "]";
+                os << "[" << sourceX_ << "," << sourceY_ << ",1.0]";
             }
         } else {
             for (size_t i = 0; i < sourcePoints_.size(); ++i) {
                 if (i) os << ";";
-                os << "[" << sourcePoints_[i].x << "," << sourcePoints_[i].y << "]";
+                os << "[" << sourcePoints_[i].x << "," << sourcePoints_[i].y << "," << sourcePoints_[i].scale << "]";
             }
         }
         os << "\n";
@@ -850,7 +924,7 @@ public:
         opts.push_back({"--pressure-iters", "int", 4, 160, true, "Pressure solver iterations", "12"});
         opts.push_back({"--diffusion-iters", "int", 0, 8, true, "Scalar diffusion iterations", "1"});
         opts.push_back({"--timescale", "float", 0.1, 5.0, true, "Simulation speed multiplier", "1.0"});
-        opts.push_back({"--preset", "string", 0, 0, false, "Preset look: candle, campfire, bonfire, smoketrail", ""});
+        opts.push_back({"--preset", "string", 0, 0, false, "Preset look: smallcandle, candle, campfire, bonfire, smoketrail", ""});
         opts.push_back({"--source-mode", "string", 0, 0, false, "Source placement: static, random, wander (ignored if --sources is set)", "static"});
         opts.push_back({"--source-region", "string", 0, 0, false, "Region for random/wander sources: x0,y0:x1,y1", "0.0,0.5:1.0,1.0"});
         opts.push_back({"--wander-count", "int", 1, 200, true, "Number of moving emitters in wander mode", "10"});
@@ -858,7 +932,7 @@ public:
         opts.push_back({"--wander-interval-max", "float", 0.01, 20.0, true, "Maximum seconds before a wander emitter jumps", "3.0"});
         opts.push_back({"--source-x", "float", -10.0, 10.0, true, "Burner X in visible-frame normalized coords (0..1 onscreen; <0/>1 offscreen)", "0.5"});
         opts.push_back({"--source-y", "float", -10.0, 10.0, true, "Burner Y in visible-frame normalized coords (0..1 onscreen; <0/>1 offscreen)", "0.97"});
-        opts.push_back({"--sources", "string", 0, 0, false, "Multiple burner points as 'x1,y1;x2,y2;...'(normalized 0..1)", ""});
+        opts.push_back({"--sources", "string", 0, 0, false, "Multiple burner points as 'x1,y1,s1;x2,y2,s2;...' (scale s optional, default 1.0)", ""});
         opts.push_back({"--burner", "string", 0, 0, false, "Burner model: gaussian, tiki, or hybrid", "tiki"});
         opts.push_back({"--source-width", "float", 0.01, 1.0, true, "Base burner width as fraction of sim width", "0.02"});
         opts.push_back({"--source-height", "float", 0.01, 1.0, true, "Source region height as fraction of sim height", "0.12"});
@@ -992,6 +1066,7 @@ public:
         for (auto& p : sourcePoints_) {
             p.x = std::clamp(p.x, -10.0f, 10.0f);
             p.y = std::clamp(p.y, -10.0f, 10.0f);
+            p.scale = std::clamp(p.scale, 0.0f, 8.0f);
         }
         wobble_ = std::clamp(wobble_, 0.0f, 3.0f);
         flicker_ = std::clamp(flicker_, 0.0f, 1.5f);
