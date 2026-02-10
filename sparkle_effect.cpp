@@ -257,8 +257,8 @@ public:
     SparkleEffect()
         : width_(0), height_(0), fps_(30), frameCount_(0),
           numSparkles_(120), maxHotspots_(400), edgeThreshold_(80.0f),
-          trackingRadius_(10.0f), nmsRadius_(6.0f),
-          spotSize_(3.8f), starSize_(12.2f), starFraction_(0.35f),
+          trackingRadius_(10.0f), nmsRadius_(10.0f),
+          spotSize_(2.8f), starSize_(5.2f), starFraction_(0.35f),
           rotationSpeedDeg_(25.0f), twinkleSpeed_(1.6f),
           intensityScale_(1.0f), fadeInSec_(0.6f), fadeOutSec_(1.2f),
           brightThreshold_(235.0f), brightBias_(0.8f),
@@ -274,9 +274,9 @@ public:
         opts.push_back({"--max-hotspots", "int", 1, 500000, true, "Maximum edge hotspots to consider", "400"});
         opts.push_back({"--edge-threshold", "float", 0.0, 10000.0, true, "Edge detection threshold", "80"});
         opts.push_back({"--track-radius", "float", 0.0, 10000.0, true, "Max distance to lock onto a moving edge (pixels)", "10"});
-        opts.push_back({"--nms-radius", "float", 0.0, 10000.0, true, "Hotspot separation radius (pixels)", "6"});
-        opts.push_back({"--spot-size", "float", 0.1, 10000.0, true, "Soft spot sparkle radius", "3.8"});
-        opts.push_back({"--star-size", "float", 0.1, 10000.0, true, "4-point star sparkle size", "12.2"});
+        opts.push_back({"--nms-radius", "float", 0.0, 10000.0, true, "Hotspot separation radius (pixels)", "10"});
+        opts.push_back({"--spot-size", "float", 0.1, 10000.0, true, "Soft spot sparkle radius", "2.8"});
+        opts.push_back({"--star-size", "float", 0.1, 10000.0, true, "4-point star sparkle size", "5.2"});
         opts.push_back({"--star-fraction", "float", 0.0, 1.0, true, "Fraction of sparkles that are stars", "0.35"});
         opts.push_back({"--rotation-speed", "float", -10000.0, 10000.0, true, "Star rotation speed (deg/sec)", "25"});
         opts.push_back({"--twinkle-speed", "float", 0.0, 10000.0, true, "Twinkle speed (cycles/sec)", "1.6"});
