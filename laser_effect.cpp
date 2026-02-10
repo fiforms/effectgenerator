@@ -23,6 +23,11 @@ struct Ray {
 
 class LaserEffect : public Effect {
 private:
+    struct RaySample {
+        float intensity;
+        float overlap;
+    };
+
     int width_, height_, fps_;
     
     // Focal point
@@ -117,7 +122,7 @@ private:
         if (focalY_ > height_ + roamY) focalY_ -= 2.0f * roamY;
     }
     
-    float getRayIntensity(float angle, float distance) {
+    RaySample getRaySample(float angle, float distance) {
         // Normalize angle
         while (angle > 2.0f * kPi) angle -= 2.0f * kPi;
         while (angle < 0.0f) angle += 2.0f * kPi;
@@ -127,6 +132,7 @@ private:
         while (angle > 2.0f * kPi) angle -= 2.0f * kPi;
         
         float combinedIntensity = 0.0f;
+        float strongestIntensity = 0.0f;
         
         for (const auto& r : rays_) {
             float angleDiff = angle - r.angle;
@@ -145,12 +151,16 @@ private:
                 float distFalloff = 1.0f / (1.0f + distance * 0.0004f);
                 float pulse = 1.0f + pulseDepth_ * std::sin(timeSec_ * r.pulseSpeed + r.phase);
                 
-                float intensity = r.baseIntensity * pulse * falloff * distFalloff;
-                combinedIntensity += std::max(0.0f, intensity);
+                float intensity = std::max(0.0f, r.baseIntensity * pulse * falloff * distFalloff);
+                combinedIntensity += intensity;
+                strongestIntensity = std::max(strongestIntensity, intensity);
             }
         }
-        
-        return std::min(1.0f, combinedIntensity);
+
+        RaySample sample;
+        sample.intensity = std::min(1.0f, combinedIntensity);
+        sample.overlap = std::clamp(combinedIntensity - strongestIntensity, 0.0f, sample.intensity);
+        return sample;
     }
     
 public:
@@ -281,8 +291,9 @@ public:
                 float distance = std::sqrt(dx * dx + dy * dy);
                 
                 // Get ray intensity at this angle
-                float intensity = getRayIntensity(angle, distance);
-                intensity *= fadeMultiplier;
+                RaySample sample = getRaySample(angle, distance);
+                float intensity = sample.intensity * fadeMultiplier;
+                float overlap = sample.overlap * fadeMultiplier;
                 
                 if (intensity > 0.01f) {
                     int idx = (y * width_ + x) * 3;
@@ -301,7 +312,9 @@ public:
                     float tintedB = std::clamp(currentB + lift * colorB_, 0.0f, 1.0f);
 
                     float gray = (tintedR + tintedG + tintedB) / 3.0f;
-                    float satAmount = std::max(0.0f, (saturationBoost_ - 1.0f) * intensity);
+                    // Keep overlap additive-looking by applying saturation boost only to non-overlap energy.
+                    float nonOverlapIntensity = std::max(0.0f, intensity - overlap);
+                    float satAmount = std::max(0.0f, (saturationBoost_ - 1.0f) * nonOverlapIntensity);
                     float outR = std::clamp(gray + (tintedR - gray) * (1.0f + satAmount), 0.0f, 1.0f);
                     float outG = std::clamp(gray + (tintedG - gray) * (1.0f + satAmount), 0.0f, 1.0f);
                     float outB = std::clamp(gray + (tintedB - gray) * (1.0f + satAmount), 0.0f, 1.0f);
