@@ -286,7 +286,18 @@ int main(int argc, char** argv) {
                 const auto& opt = optIt->second;
                 std::string value;
                 const std::string* valuePtr = nullptr;
-                if (opt.type != "boolean") {
+                if (opt.type == "boolean") {
+                    // Allow optional explicit boolean values, e.g.:
+                    // --heart-spin true / --heart-spin false
+                    if (i + 1 < argc) {
+                        std::string next = argv[i + 1];
+                        if (!next.empty() && next.rfind("--", 0) != 0) {
+                            value = next;
+                            valuePtr = &value;
+                            ++i;
+                        }
+                    }
+                } else {
                     if (i + 1 >= argc) {
                         std::cerr << "Missing value for option " << arg
                                   << " in effect stage " << (currentStage + 1)

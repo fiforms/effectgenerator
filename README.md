@@ -79,6 +79,12 @@ effectgenerator --effect snowflake --duration 10 --output snowfall.mp4
 # Heavy snow with custom settings
 effectgenerator --effect snowflake --flakes 300 --size 5.0 --duration 15 --output longer.mp4
 
+# Valentine's Day hearts (pink + red mix)
+effectgenerator --effect snowflake --shape heart --color-mode valentine --duration 12 --output valentines.mp4
+
+# Hearts with vertical-axis spin and red-only palette
+effectgenerator --effect snowflake --shape heart --heart-spin --color-mode red --duration 12 --output valentines-red.mp4
+
 # Overlay on image
 effectgenerator --effect snowflake --background-image winter.jpg --output snowy.mp4
 
