@@ -345,7 +345,7 @@ std::string VideoGenerator::findFFmpeg(std::string binaryName) {
 
 VideoGenerator::VideoGenerator(int width, int height, int fps, float fadeDuration, float maxFadeRatio, int crf, std::string audioCodec, std::string audioBitrate)
     : width_(width), height_(height), fps_(fps), fadeDuration_(fadeDuration), maxFadeRatio_(maxFadeRatio), crf_(crf), audioCodec_(audioCodec), audioBitrate_(audioBitrate),
-      warmupSeconds_(0.0f), hasBackground_(false), isVideo_(false) {
+      warmupSeconds_(0.0f), hasBackground_(false), isVideo_(false), readRawBackgroundFromStdin_(false), writeRawOutputToStdout_(false) {
     frame_.resize(width * height * 3);
     ffmpegPath_ = findFFmpeg("ffmpeg");
 }
@@ -379,11 +379,23 @@ bool VideoGenerator::loadBackgroundImage(const char* filename) {
         return false;
     }
     
-    std::cout << "Background image loaded: " << filename << "\n";
+    std::cerr << "Background image loaded: " << filename << "\n";
     return true;
 }
 
 bool VideoGenerator::startBackgroundVideo(const char* filename) {
+    readRawBackgroundFromStdin_ = (filename && std::strcmp(filename, "-") == 0);
+    if (readRawBackgroundFromStdin_) {
+        backgroundBuffer_.resize(width_ * height_ * 3);
+#ifdef _WIN32
+        _setmode(_fileno(stdin), _O_BINARY);
+#endif
+        std::cerr << "Background video opened from stdin as rawvideo (rgb24, "
+                  << width_ << "x" << height_ << " @ " << fps_ << "fps)\n";
+        backgroundVideo_ = filename;
+        return true;
+    }
+
     std::vector<std::string> args = {
         ffmpegPath_,
         "-i", filename,
@@ -402,7 +414,7 @@ bool VideoGenerator::startBackgroundVideo(const char* filename) {
     }
     
     backgroundBuffer_.resize(width_ * height_ * 3);
-    std::cout << "Background video opened: " << filename << "\n";
+    std::cerr << "Background video opened: " << filename << "\n";
     // Remember the background video path for duration probing
     backgroundVideo_ = filename;
     return true;
@@ -443,9 +455,10 @@ double VideoGenerator::probeVideoDuration(const char* filename) {
 }
 
 bool VideoGenerator::readVideoFrame() {
-    if (!videoInput_.stream) return false;
-    
-    size_t bytesRead = fread(backgroundBuffer_.data(), 1, backgroundBuffer_.size(), videoInput_.stream);
+    FILE* inputStream = readRawBackgroundFromStdin_ ? stdin : videoInput_.stream;
+    if (!inputStream) return false;
+
+    size_t bytesRead = fread(backgroundBuffer_.data(), 1, backgroundBuffer_.size(), inputStream);
     return bytesRead == backgroundBuffer_.size();
 }
 
@@ -462,6 +475,17 @@ bool VideoGenerator::setBackgroundVideo(const char* filename) {
 }
 
 bool VideoGenerator::startFFmpegOutput(const char* filename) {
+    writeRawOutputToStdout_ = (filename && std::strcmp(filename, "-") == 0);
+    if (writeRawOutputToStdout_) {
+#ifdef _WIN32
+        _setmode(_fileno(stdout), _O_BINARY);
+#endif
+        ffmpegOutput_.stream = stdout;
+        std::cerr << "Output set to stdout as rawvideo (rgb24, "
+                  << width_ << "x" << height_ << " @ " << fps_ << "fps)\n";
+        return true;
+    }
+
     if (ffmpegPath_.empty()) {
         std::cerr << "FFmpeg path not set or FFmpeg not found\n";
         return false;
@@ -510,7 +534,7 @@ bool VideoGenerator::startFFmpegOutput(const char* filename) {
         }
         for (const auto& e : extra) args.push_back(e);
         args.push_back(filename);
-        std::cout << "Using custom FFmpeg parameters from FFMPEG_PARAMETERS\n";
+        std::cerr << "Using custom FFmpeg parameters from FFMPEG_PARAMETERS\n";
         ffmpegOutput_ = spawnProcessPipe(args, "w", true);
         if (!ffmpegOutput_.stream) {
             std::cerr << "Failed to open FFmpeg output pipe\n";
@@ -623,22 +647,24 @@ float VideoGenerator::getFadeMultiplier(int frameNumber, int totalFrames) {
 
 bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationSec, const char* outputFile) {
     if (effects.empty()) return false;
+    const bool outputToStdoutRaw = (outputFile && std::strcmp(outputFile, "-") == 0);
+    std::ostream& log = outputToStdoutRaw ? std::cerr : std::cout;
 
-    std::cout << "FFmpeg path: " << ffmpegPath_ << "\n";
+    log << "FFmpeg path: " << ffmpegPath_ << "\n";
 
     int totalFrames = 0;
     if (isVideo_ && durationSec <= 0) {
         double secs = probeVideoDuration(backgroundVideo_.c_str());
         if (secs > 0.0) {
             totalFrames = (int)std::round(secs * fps_);
-            std::cout << "Auto-detected background video duration: " << secs << "s (" << totalFrames << " frames)\n";
+            log << "Auto-detected background video duration: " << secs << "s (" << totalFrames << " frames)\n";
         } else {
             totalFrames = INT_MAX;
-            std::cout << "Could not probe video duration; generating until input video ends...\n";
+            log << "Could not probe video duration; generating until input video ends...\n";
         }
     } else if (durationSec > 0) {
         totalFrames = fps_ * durationSec;
-        std::cout << "Generating " << totalFrames << " frames (" << durationSec << "s @ " << fps_ << " fps)...\n";
+        log << "Generating " << totalFrames << " frames (" << durationSec << "s @ " << fps_ << " fps)...\n";
     } else {
         std::cerr << "No duration provided and no background video available\n";
         return false;
@@ -659,8 +685,8 @@ bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationS
 
     int warmupFrames = (int)std::round(std::max(0.0f, warmupSeconds_) * fps_);
     if (warmupFrames > 0) {
-        std::cout << "Warmup: advancing simulation by " << warmupFrames
-                  << " frames (" << warmupSeconds_ << "s)\n";
+        log << "Warmup: advancing simulation by " << warmupFrames
+            << " frames (" << warmupSeconds_ << "s)\n";
         for (Effect* effect : effects) {
             for (int i = 0; i < warmupFrames; ++i) {
                 effect->update();
@@ -833,7 +859,7 @@ bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationS
         fwrite(packet.frame.data(), 1, packet.frame.size(), ffmpegOutput_.stream);
         ++writtenFrames;
         if (writtenFrames % fps_ == 0) {
-            std::cout << "Progress: " << writtenFrames / fps_ << " seconds\r" << std::flush;
+            log << "Progress: " << writtenFrames / fps_ << " seconds\r" << std::flush;
         }
     }
 
@@ -841,15 +867,24 @@ bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationS
         if (worker.joinable()) worker.join();
     }
 
-    closeProcessPipe(ffmpegOutput_);
+    if (writeRawOutputToStdout_) {
+        fflush(stdout);
+        ffmpegOutput_.stream = nullptr;
+    } else {
+        closeProcessPipe(ffmpegOutput_);
+    }
 
     if (sourceEnded.load() && autoDetectDuration) {
         int endedAt = sourceFrameCount.load();
-        std::cout << "\nInput video ended at frame " << endedAt
-                  << " (" << endedAt / fps_ << " seconds)\n";
+        log << "\nInput video ended at frame " << endedAt
+            << " (" << endedAt / fps_ << " seconds)\n";
     }
 
-    std::cout << "\nVideo saved to: " << outputFile << "\n";
+    if (writeRawOutputToStdout_) {
+        std::cerr << "\nVideo stream written to stdout\n";
+    } else {
+        std::cout << "\nVideo saved to: " << outputFile << "\n";
+    }
     return true;
 }
 

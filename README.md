@@ -90,7 +90,20 @@ effectgenerator --fade 2 --background-video input.mp4 --effect laser --rays 10 -
 
 # Custom resolution and FPS
 effectgenerator --effect snowflake --width 3840 --height 2160 --fps 60  --output faster.mp4
+
+# Pipe input (stdin rawvideo rgb24)
+ffmpeg -i input.mp4 -vf "scale=1920:1080,fps=30,format=rgb24" -f rawvideo -pix_fmt rgb24 - \
+  | effectgenerator --effect flame --preset candle --background-video - --width 1920 --height 1080 --fps 30 --output out.mp4
+
+# Pipe output (stdout rawvideo rgb24)
+effectgenerator --effect flame --preset candle --width 1920 --height 1080 --fps 30 --duration 10 --output - \
+  | ffmpeg -f rawvideo -pix_fmt rgb24 -s 1920x1080 -r 30 -i - -c:v libx264 final.mp4
 ```
+
+### Pipe Formats
+
+- `--background-video -` (or `--video-background -`) reads **stdin** as rawvideo `rgb24` at exactly `--width x --height` and `--fps`.
+- `--output -` writes **stdout** as rawvideo `rgb24` at exactly `--width x --height` and `--fps`.
 
 ## Adding New Effects
 

@@ -82,14 +82,18 @@ void printUsage(const char* prog) {
     std::cout << "  --fade <float>            Fade in/out duration in seconds (default: 0.0)\n";
     std::cout << "  --max-fade <float>        Maximum opacity (0.0-1.0) of effect (default: 1.0)\n";
     std::cout << "  --background-image <path> Background image (JPG/PNG)\n";
-    std::cout << "  --background-video <path> Background video (MP4/MOV/etc)\n";
+    std::cout << "  --background-video <path> Background video (MP4/MOV/etc), or '-' for stdin rawvideo\n";
+    std::cout << "  --video-background <path> Alias for --background-video\n";
     std::cout << "  --crf <int>               Output video quality (default: 23, lower is better)\n\n";
     std::cout << "Audio Options:\n";
     std::cout << "  --audio-codec <string>    Output Audio Codec (passed to ffmpeg, default none)\n";
     std::cout << "  --audio-bitrate <int>     Audio Bitrate in kbps (default: 192)\n";
     std::cout << "Output Options:\n";
-    std::cout << "  --output <string>         Output filename (required)\n";
+    std::cout << "  --output <string>         Output filename (required), or '-' for stdout rawvideo\n";
     std::cout << "  --overwrite               Overwrite output file if it exists\n\n";
+    std::cout << "Pipe Format:\n";
+    std::cout << "  --background-video -      stdin must be rawvideo rgb24 at --width x --height and --fps\n";
+    std::cout << "  --output -                stdout is rawvideo rgb24 at --width x --height and --fps\n\n";
     std::cout << "Environment Variables:\n";
     std::cout << "  FFMPEG_PATH               Path to ffmpeg executable\n";
     std::cout << "  FFPROBE_PATH              Path to ffprobe executable\n\n";
@@ -98,6 +102,10 @@ void printUsage(const char* prog) {
     std::cout << "  " << prog << " --help-snowflake\n";
     std::cout << "  " << prog << " --effect snowflake --flakes 200 --duration 10 --output snow.mp4\n";
     std::cout << "  " << prog << " --fade 2 --background-video input.mp4 --effect laser --rays 10 --effect sparkle --output layered.mp4\n";
+    std::cout << "  ffmpeg -i input.mp4 -vf \"scale=1920:1080,fps=30,format=rgb24\" -f rawvideo -pix_fmt rgb24 - | "
+              << prog << " --effect flame --preset candle --background-video - --width 1920 --height 1080 --fps 30 --output out.mp4\n";
+    std::cout << "  " << prog << " --effect flame --preset candle --width 1920 --height 1080 --fps 30 --duration 10 --output - | "
+              << "ffmpeg -f rawvideo -pix_fmt rgb24 -s 1920x1080 -r 30 -i - -c:v libx264 final.mp4\n";
 }
 
 void listEffects() {
@@ -326,7 +334,7 @@ int main(int argc, char** argv) {
             overwriteOutput = true;
         } else if (arg == "--background-image" && i + 1 < argc) {
             backgroundImage = argv[++i];
-        } else if (arg == "--background-video" && i + 1 < argc) {
+        } else if ((arg == "--background-video" || arg == "--video-background") && i + 1 < argc) {
             backgroundVideo = argv[++i];
         } else {
             std::cerr << "Unknown or invalid argument: " << arg << "\n";
@@ -367,7 +375,7 @@ int main(int argc, char** argv) {
     }
 
     // Check if output file exists
-    if (!overwriteOutput) {
+    if (!overwriteOutput && output != "-") {
       if(FILE* file = std::fopen(output.c_str(), "rb")) {
         std::fclose(file);
         std::cerr << "Error: Output file '" << output << "' already exists. Please choose a different name or pass --overwrite.\n";
@@ -406,35 +414,38 @@ int main(int argc, char** argv) {
     if (duration == -1 && backgroundVideo.empty()) {
         duration = 5;
     }
+
+    const bool outputToStdoutRaw = (output == "-");
+    std::ostream& infoOut = outputToStdoutRaw ? std::cerr : std::cout;
     
     // Print configuration
-    std::cout << "Effect Generator\n";
-    std::cout << "================\n";
-    std::cout << "Effects: ";
+    infoOut << "Effect Generator\n";
+    infoOut << "================\n";
+    infoOut << "Effects: ";
     for (size_t i = 0; i < stages.size(); ++i) {
-        if (i) std::cout << " -> ";
-        std::cout << stages[i].effect->getName();
+        if (i) infoOut << " -> ";
+        infoOut << stages[i].effect->getName();
     }
-    std::cout << "\n";
-    std::cout << "Resolution: " << width << "x" << height << "\n";
-    std::cout << "FPS: " << fps << "\n";
+    infoOut << "\n";
+    infoOut << "Resolution: " << width << "x" << height << "\n";
+    infoOut << "FPS: " << fps << "\n";
     if (duration == -1) {
-        std::cout << "Duration: auto-detect from video\n";
+        infoOut << "Duration: auto-detect from video\n";
     } else {
-        std::cout << "Duration: " << duration << "s\n";
+        infoOut << "Duration: " << duration << "s\n";
     }
-    std::cout << "Fade duration: " << fadeDuration << "s\n";
+    infoOut << "Fade duration: " << fadeDuration << "s\n";
     if (warmupDuration > 0.0f) {
-        std::cout << "Warmup duration: " << warmupDuration << "s\n";
+        infoOut << "Warmup duration: " << warmupDuration << "s\n";
     }
-    std::cout << "Max Fade Ratio: " << maxFadeRatio << "\n";
+    infoOut << "Max Fade Ratio: " << maxFadeRatio << "\n";
     if (!backgroundImage.empty()) {
-        std::cout << "Background image: " << backgroundImage << "\n";
+        infoOut << "Background image: " << backgroundImage << "\n";
     }
     if (!backgroundVideo.empty()) {
-        std::cout << "Background video: " << backgroundVideo << "\n";
+        infoOut << "Background video: " << backgroundVideo << "\n";
     }
-    std::cout << "Output: " << output << "\n\n";
+    infoOut << "Output: " << output << "\n\n";
     
     std::vector<Effect*> pipeline;
     pipeline.reserve(stages.size());

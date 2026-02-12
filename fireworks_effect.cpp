@@ -403,7 +403,7 @@ public:
         // Store total frames on first call
         if (expectedTotalFrames_ == -1) {
             expectedTotalFrames_ = totalFrames;
-            std::cout << "Total frames: " << totalFrames << "\n";
+            std::cerr << "Total frames: " << totalFrames << "\n";
         }
 
     }

@@ -65,7 +65,7 @@ public:
             frame.resize(width * height * 3);
         }
         
-        std::cout << "Loop fade: " << crossfadeFrames_ << " frames (" 
+        std::cerr << "Loop fade: " << crossfadeFrames_ << " frames (" 
                   << crossfadeDuration_ << "s) crossfade\n";        
         return true;
     }
@@ -82,7 +82,7 @@ public:
             if (storeIdx < (int)beginningFrames_.size()) {
                 std::copy(frame.begin(), frame.end(), beginningFrames_[storeIdx].begin());
                 if (!capturedBeginning_ && storeIdx == 0) {
-                    std::cout << "Capturing beginning frames for crossfade...\n";
+                    std::cerr << "Capturing beginning frames for crossfade...\n";
                     capturedBeginning_ = true;
                 }
             }
@@ -100,7 +100,7 @@ public:
         // Store total frames on first call
         if (expectedTotalFrames_ == -1) {
             expectedTotalFrames_ = totalFrames;
-            std::cout << "Total frames: " << totalFrames << ", crossfade starts at frame " 
+            std::cerr << "Total frames: " << totalFrames << ", crossfade starts at frame " 
                       << (totalFrames - crossfadeFrames_) << "\n";
         }
 
@@ -134,7 +134,7 @@ public:
                 
                 // Debug: print when crossfade starts
                 if (fadeFrameIdx == 0) {
-                    std::cout << "Starting crossfade at frame " << frameIndex << "...\n";
+                    std::cerr << "Starting crossfade at frame " << frameIndex << "...\n";
                 }
             }
         }

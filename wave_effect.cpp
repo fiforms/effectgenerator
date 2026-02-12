@@ -486,18 +486,18 @@ public:
             if (warmupFrames_ > 0) warmupSpawns_[0].push_back(spec);
         }
         
-        std::cout << "Wave effect initialized with " << numSources_ << " initial sources\n";
+        std::cerr << "Wave effect initialized with " << numSources_ << " initial sources\n";
         if (useDisplacement_) {
-            std::cout << "Using displacement + brightness mode with scale: " << displacementScale_ << " pixels\n";
-            std::cout << "Light angle: " << (lightAngle_ * 180.0f / kPi) << " degrees\n";
+            std::cerr << "Using displacement + brightness mode with scale: " << displacementScale_ << " pixels\n";
+            std::cerr << "Light angle: " << (lightAngle_ * 180.0f / kPi) << " degrees\n";
         } else {
-            std::cout << "Using brightness modulation only mode\n";
-            std::cout << "Light angle: " << (lightAngle_ * 180.0f / kPi) << " degrees\n";
+            std::cerr << "Using brightness modulation only mode\n";
+            std::cerr << "Light angle: " << (lightAngle_ * 180.0f / kPi) << " degrees\n";
         }
         // Optional warmup: pre-simulate the system for a number of seconds to stabilize
         if (internalWarmupSeconds > 0.0f && warmupFrames_ > 0) {
-            std::cout << "Warming up simulation for " << internalWarmupSeconds << "s (" << warmupFrames_ << " frames)";
-            std::cout << "...\n";
+            std::cerr << "Warming up simulation for " << internalWarmupSeconds << "s (" << warmupFrames_ << " frames)";
+            std::cerr << "...\n";
 
             for (int i = 0; i < warmupFrames_; ++i) {
                 update();
@@ -513,7 +513,7 @@ public:
             // Reset logical frame count so generation starts at frame 0
             frameCount_ = 0;
 
-            std::cout << "Warmup complete. Resetting output frame count to 0.\n";
+            std::cerr << "Warmup complete. Resetting output frame count to 0.\n";
         }
         
         return true;

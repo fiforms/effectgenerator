@@ -180,6 +180,8 @@ private:
     std::vector<uint8_t> backgroundBuffer_;
     bool hasBackground_;
     bool isVideo_;
+    bool readRawBackgroundFromStdin_;
+    bool writeRawOutputToStdout_;
     struct ProcessPipe {
         FILE* stream = nullptr;
 #ifdef _WIN32
