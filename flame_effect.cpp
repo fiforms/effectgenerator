@@ -14,6 +14,8 @@
 
 class FlameEffect : public Effect {
 private:
+    static constexpr float kUnsetPx = -1.0e30f;
+
     struct SourcePoint {
         float x = 0.5f;
         float y = 0.97f;
@@ -39,10 +41,12 @@ private:
     int threadsOpt_ = 0; // 0 = auto
 
     float timeScale_ = 1.0f;
-    float sourceX_ = 0.5f;       // normalized
-    float sourceY_ = 0.97f;      // normalized (0=top, 1=bottom)
-    float sourceWidth_ = 0.02f;  // normalized base width
-    float sourceHeight_ = 0.12f; // normalized source region height
+    float sourceWidth_ = 0.02f;  // internal normalized base width
+    float sourceHeight_ = 0.12f; // internal normalized source region height
+    // CLI/API values in output pixels. If unset, keep preset/internal normalized values.
+    float sourceWidthPx_ = kUnsetPx;
+    float sourceHeightPx_ = kUnsetPx;
+    bool sourcePointsArePixels_ = false;
     float sourceSpread_ = 1.75f; // width expansion above base
     int burnerMode_ = 1;         // 0=gaussian, 1=tiki, 2=hybrid, 3=cloud
     float sourceHeat_ = 3.2f;
@@ -95,7 +99,7 @@ private:
     std::vector<float> pressureTmp_;
     std::vector<float> divergence_;
     std::vector<float> curl_;
-    std::vector<SourcePoint> sourcePoints_;
+    std::vector<SourcePoint> sourcePoints_{{0.5f, 0.97f, 1.0f}};
 
     inline int idx(int x, int y) const { return y * simWidth_ + x; }
 
@@ -131,13 +135,14 @@ private:
                 if (endS != sscl.c_str()) scl = rawScale;
             }
             parsed.push_back({
-                std::clamp(x, -10.0f, 10.0f),
-                std::clamp(y, -10.0f, 10.0f),
+                std::clamp(x, -10000000.0f, 10000000.0f),
+                std::clamp(y, -10000000.0f, 10000000.0f),
                 std::clamp(scl, 0.0f, 8.0f)
             });
         }
         if (parsed.empty()) return false;
         sourcePoints_ = std::move(parsed);
+        sourcePointsArePixels_ = true;
         return true;
     }
 
@@ -344,6 +349,7 @@ private:
                 {0.52f, -0.24f, 0.65f},
                 {0.86f, -0.16f, 0.50f},
             };
+            sourcePointsArePixels_ = false;
             return true;
         }
         return false;
@@ -560,12 +566,7 @@ private:
         float visibleSimW = simWidth_ / std::max(0.0001f, domainW);
         float visibleSimH = simHeight_ / std::max(0.0001f, domainH);
         int phase = frameCount_;
-        std::vector<SourcePoint> activeSources;
-        if (sourcePoints_.empty()) {
-            activeSources.push_back({sourceX_, sourceY_, 1.0f});
-        } else {
-            activeSources = sourcePoints_;
-        }
+        std::vector<SourcePoint> activeSources = sourcePoints_;
 
         auto injectGaussian = [&](const SourcePoint& sp, float modeScale, const EmitterParams& ep) {
             float sxNorm = (sp.x + simPadLeft_) / std::max(0.0001f, domainW);
@@ -958,13 +959,9 @@ public:
         os << "sim_padding: left=" << simPadLeft_ << ", right=" << simPadRight_
            << ", top=" << simPadTop_ << ", bottom=" << simPadBottom_ << "\n";
         os << "sources: ";
-        if (sourcePoints_.empty()) {
-            os << "[" << sourceX_ << "," << sourceY_ << ",1.0]";
-        } else {
-            for (size_t i = 0; i < sourcePoints_.size(); ++i) {
-                if (i) os << ";";
-                os << "[" << sourcePoints_[i].x << "," << sourcePoints_[i].y << "," << sourcePoints_[i].scale << "]";
-            }
+        for (size_t i = 0; i < sourcePoints_.size(); ++i) {
+            if (i) os << ";";
+            os << "[" << sourcePoints_[i].x << "," << sourcePoints_[i].y << "," << sourcePoints_[i].scale << "]";
         }
         os << "\n";
         os << "source_width=" << sourceWidth_ << ", source_height=" << sourceHeight_
@@ -1000,13 +997,11 @@ public:
         opts.push_back({"--diffusion-iters", "int", 0, 8, true, "Scalar diffusion iterations", "1"});
         opts.push_back({"--timescale", "float", 0.1, 5.0, true, "Simulation speed multiplier", "1.0"});
         opts.push_back({"--preset", "string", 0, 0, false, "Preset look: smallcandle, candle, campfire, bonfire, smoketrail, mist", ""});
-        opts.push_back({"--source-x", "float", -10.0, 10.0, true, "Burner X in visible-frame normalized coords (0..1 onscreen; <0/>1 offscreen)", "0.5"});
-        opts.push_back({"--source-y", "float", -10.0, 10.0, true, "Burner Y in visible-frame normalized coords (0..1 onscreen; <0/>1 offscreen)", "0.97"});
-        opts.push_back({"--sources", "string", 0, 0, false, "Multiple burner points as 'x1,y1,s1;x2,y2,s2;...' (scale s optional, default 1.0)", ""});
+        opts.push_back({"--sources", "string", 0, 0, false, "Multiple burner points in output pixels as 'x1,y1,s1;x2,y2,s2;...' (scale s optional, default 1.0)", ""});
         opts.push_back({"--burner", "string", 0, 0, false, "Burner model: gaussian, tiki, hybrid, or cloud", "tiki"});
-        opts.push_back({"--source-width", "float", 0.01, 1.0, true, "Base burner width as fraction of sim width", "0.02"});
-        opts.push_back({"--source-height", "float", 0.01, 1.0, true, "Source region height as fraction of sim height", "0.12"});
-        opts.push_back({"--source-spread", "float", 0.2, 4.0, true, "How quickly the flame widens above the base", "1.75"});
+        opts.push_back({"--source-width", "float", 0.0, 10000000.0, true, "Base burner width in output pixels", ""});
+        opts.push_back({"--source-height", "float", 0.0, 10000000.0, true, "Source region height in output pixels", ""});
+        opts.push_back({"--source-spread", "float", 0.2, 4.0, true, "How quickly the flame widens above the base (used by gaussian/tiki/hybrid; ignored by cloud)", "1.75"});
         opts.push_back({"--source-heat", "float", 0.0, 20.0, true, "Heat injection strength", "3.2"});
         opts.push_back({"--source-smoke", "float", 0.0, 10.0, true, "Smoke injection strength", "1.1"});
         opts.push_back({"--source-updraft", "float", 0.0, 300.0, true, "Initial upward velocity impulse", "200.0"});
@@ -1050,20 +1045,39 @@ public:
         if (arg == "--pressure-iters" && i + 1 < argc) { pressureIters_ = std::atoi(argv[++i]); return true; }
         if (arg == "--diffusion-iters" && i + 1 < argc) { diffusionIters_ = std::atoi(argv[++i]); return true; }
         if (arg == "--timescale" && i + 1 < argc) { timeScale_ = std::atof(argv[++i]); return true; }
-        if (arg == "--preset" && i + 1 < argc) { applyPreset(argv[++i]); return true; }
-        if (arg == "--source-x" && i + 1 < argc) { sourceX_ = std::atof(argv[++i]); return true; }
-        if (arg == "--source-y" && i + 1 < argc) { sourceY_ = std::atof(argv[++i]); return true; }
-        if (arg == "--sources" && i + 1 < argc) { parseSourcesSpec(argv[++i]); return true; }
+        if (arg == "--preset" && i + 1 < argc) {
+            std::string preset = argv[++i];
+            if (!applyPreset(preset)) {
+                std::cerr << "Invalid flame preset '" << preset
+                          << "'. Valid values: smallcandle, candle, campfire, bonfire, smoketrail, mist\n";
+                return false;
+            }
+            return true;
+        }
+        if (arg == "--sources" && i + 1 < argc) {
+            std::string spec = argv[++i];
+            if (!parseSourcesSpec(spec)) {
+                std::cerr << "Invalid --sources value '" << spec
+                          << "'. Expected format: x1,y1,s1;x2,y2,s2;... (scale optional)\n";
+                return false;
+            }
+            return true;
+        }
         if (arg == "--burner" && i + 1 < argc) {
             std::string v = argv[++i];
             if (v == "gaussian") burnerMode_ = 0;
             else if (v == "tiki") burnerMode_ = 1;
             else if (v == "hybrid") burnerMode_ = 2;
             else if (v == "cloud") burnerMode_ = 3;
+            else {
+                std::cerr << "Invalid --burner value '" << v
+                          << "'. Valid values: gaussian, tiki, hybrid, cloud\n";
+                return false;
+            }
             return true;
         }
-        if (arg == "--source-width" && i + 1 < argc) { sourceWidth_ = std::atof(argv[++i]); return true; }
-        if (arg == "--source-height" && i + 1 < argc) { sourceHeight_ = std::atof(argv[++i]); return true; }
+        if (arg == "--source-width" && i + 1 < argc) { sourceWidthPx_ = std::atof(argv[++i]); return true; }
+        if (arg == "--source-height" && i + 1 < argc) { sourceHeightPx_ = std::atof(argv[++i]); return true; }
         if (arg == "--source-spread" && i + 1 < argc) { sourceSpread_ = std::atof(argv[++i]); return true; }
         if (arg == "--source-heat" && i + 1 < argc) { sourceHeat_ = std::atof(argv[++i]); return true; }
         if (arg == "--source-smoke" && i + 1 < argc) { sourceSmoke_ = std::atof(argv[++i]); return true; }
@@ -1116,8 +1130,20 @@ public:
         float simHf = ((float)height_ * domainH) / std::max(0.0001f, simMultiplier_);
         simWidth_ = std::clamp((int)std::lround(simWf), 64, 4096);
         simHeight_ = std::clamp((int)std::lround(simHf), 64, 4096);
-        sourceX_ = std::clamp(sourceX_, -10.0f, 10.0f);
-        sourceY_ = std::clamp(sourceY_, -10.0f, 10.0f);
+
+        // Convert output-space pixel controls into internal normalized coordinates.
+        float widthForNorm = std::max(1.0f, (float)width_);
+        float heightForNorm = std::max(1.0f, (float)height_);
+        if (sourceWidthPx_ > kUnsetPx * 0.5f) sourceWidth_ = sourceWidthPx_ / widthForNorm;
+        if (sourceHeightPx_ > kUnsetPx * 0.5f) sourceHeight_ = sourceHeightPx_ / heightForNorm;
+        if (sourcePointsArePixels_) {
+            for (auto& p : sourcePoints_) {
+                p.x /= widthForNorm;
+                p.y /= heightForNorm;
+            }
+            sourcePointsArePixels_ = false;
+        }
+
         sourceWidth_ = std::clamp(sourceWidth_, 0.01f, 1.0f);
         sourceHeight_ = std::clamp(sourceHeight_, 0.01f, 1.0f);
         sourceSpread_ = std::clamp(sourceSpread_, 0.2f, 4.0f);

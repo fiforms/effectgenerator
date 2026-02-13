@@ -37,7 +37,7 @@ private:
     std::mt19937 rng_;
     int mode_; // 0=small,1=bethlehem,2=mixed
     float mixRatio_; // when mixed, fraction of small stars (0..1)
-    float groundThreshold_ = 0.0f; // portion of ground to avoid placing stars on
+    float groundThreshold_ = 0.0f; // output pixels at bottom to avoid placing stars on
 
     void drawEllipse(std::vector<uint8_t>& frame, int cx, int cy, float rx, float ry, float opacity, float fadeMultiplier, float colR, float colG, float colB) {
         float effectiveRx = rx + softness_;
@@ -177,7 +177,7 @@ public:
         opts.push_back({"--softness", "float", 0.0, 10000.0, true, "Edge softness/blur", "1.5"});
         opts.push_back({"--type", "string", 0, 0, false, "Star type: small, bethlehem, or mixed", "mixed"});
         opts.push_back({"--mix-ratio", "float", 0.0, 1.0, true, "When mixed, fraction of small stars (0..1)", "0.95"});
-        opts.push_back({"--ground-threshold", "float", 0.0, 0.95, true, "Portion of ground to avoid placing stars on (0.0-0.95)", "0.0"});
+        opts.push_back({"--ground-threshold", "float", 0.0, 10000000.0, true, "Ground band (in output pixels from bottom) where stars are not placed", "0.0"});
         return opts;
     }
 
@@ -206,7 +206,6 @@ public:
         } else if (arg == "--ground-threshold" && i + 1 < argc) {
             groundThreshold_ = std::atof(argv[++i]);
             if (groundThreshold_ < 0.0f) groundThreshold_ = 0.0f;
-            if (groundThreshold_ > 0.95f) groundThreshold_ = 0.95f;
             return true;
         }
         return false;
@@ -214,9 +213,10 @@ public:
 
     bool initialize(int width, int height, int fps) override {
         width_ = width; height_ = height; fps_ = fps;
+        float spawnMaxY = std::max(0.0f, (float)height_ - groundThreshold_);
 
         std::uniform_real_distribution<float> distX(0.0f, (float)width_);
-        std::uniform_real_distribution<float> distY(0.0f, (float)height_ * (1.0f - groundThreshold_));
+        std::uniform_real_distribution<float> distY(0.0f, spawnMaxY);
         std::uniform_real_distribution<float> distRadius(0.6f, smallMaxRadius_);
         std::uniform_real_distribution<float> distOpacity(0.2f, 1.0f);
         std::uniform_real_distribution<float> distPhase(0.0f, 2.0f * 3.14159265f);
@@ -303,9 +303,10 @@ public:
     void update() override {
         float dt = (fps_ > 0) ? (1.0f / (float)fps_) : 0.0333f;
         frameCount_++;
+        float spawnMaxY = std::max(0.0f, (float)height_ - groundThreshold_);
 
         std::uniform_real_distribution<float> distX(0.0f, (float)width_);
-        std::uniform_real_distribution<float> distY(0.0f, (float)height_ * (1.0f - groundThreshold_));
+        std::uniform_real_distribution<float> distY(0.0f, spawnMaxY);
         std::uniform_real_distribution<float> distRadius(0.6f, smallMaxRadius_);
         std::uniform_real_distribution<float> distOpacity(0.2f, 1.0f);
         std::uniform_real_distribution<float> distPhase(0.0f, 2.0f * 3.14159265f);
