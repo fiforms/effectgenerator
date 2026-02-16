@@ -5,7 +5,9 @@
 #include <random>
 #include <cmath>
 #include <algorithm>
+#include <cctype>
 #include <iostream>
+#include <string>
 #include <vector>
 
 namespace {
@@ -57,6 +59,28 @@ private:
     std::mt19937 rng_;
     float globalRotation_;
     float timeSec_;
+
+    bool parseHexColor(const std::string& value, float& outR, float& outG, float& outB) {
+        if (value.size() != 7 || value[0] != '#') return false;
+        auto hexNibble = [](char c) -> int {
+            unsigned char uc = (unsigned char)c;
+            if (uc >= '0' && uc <= '9') return (int)(uc - '0');
+            uc = (unsigned char)std::tolower(uc);
+            if (uc >= 'a' && uc <= 'f') return (int)(10 + (uc - 'a'));
+            return -1;
+        };
+        int hiR = hexNibble(value[1]), loR = hexNibble(value[2]);
+        int hiG = hexNibble(value[3]), loG = hexNibble(value[4]);
+        int hiB = hexNibble(value[5]), loB = hexNibble(value[6]);
+        if (hiR < 0 || loR < 0 || hiG < 0 || loG < 0 || hiB < 0 || loB < 0) return false;
+        int r = hiR * 16 + loR;
+        int g = hiG * 16 + loG;
+        int b = hiB * 16 + loB;
+        outR = r / 255.0f;
+        outG = g / 255.0f;
+        outB = b / 255.0f;
+        return true;
+    }
     
     void initRays() {
         std::uniform_real_distribution<float> distAngle(0.0f, 2.0f * kPi);
@@ -200,9 +224,7 @@ public:
         opts.push_back({"--shadow-protect", "float", 0.0, 4.0, true, "How strongly dark areas resist brightening", "0.75"});
         opts.push_back({"--saturation-boost", "float", 0.0, 4.0, true, "Color saturation boost in lit areas", "1.4"});
         opts.push_back({"--pulse-depth", "float", 0.0, 2.0, true, "Per-ray breathing pulse depth", "0.22"});
-        opts.push_back({"--color-r", "float", 0.0, 1.0, true, "Red component 0.0-1.0", "1.0"});
-        opts.push_back({"--color-g", "float", 0.0, 1.0, true, "Green component 0.0-1.0", "1.0"});
-        opts.push_back({"--color-b", "float", 0.0, 1.0, true, "Blue component 0.0-1.0", "1.0"});
+        opts.push_back({"--color", "string", 0, 0, false, "Laser color: white|yellow|sodium|xenon|#RRGGBB", "white"});
         return opts;
     }
     
@@ -257,13 +279,38 @@ public:
         } else if (arg == "--pulse-depth" && i + 1 < argc) {
             pulseDepth_ = std::atof(argv[++i]);
             return true;
+        } else if (arg == "--color" && i + 1 < argc) {
+            std::string v = argv[++i];
+            std::string name = v;
+            for (char& c : name) c = (char)std::tolower((unsigned char)c);
+            float r = 1.0f, g = 1.0f, b = 1.0f;
+            if (name == "white") {
+                r = 1.0f; g = 1.0f; b = 1.0f;
+            } else if (name == "yellow" || name == "sodium") {
+                // Warm sodium-vapor style yellow.
+                r = 1.0f; g = 0.84f; b = 0.35f;
+            } else if (name == "xenon") {
+                // Cool blue-white HID style.
+                r = 0.86f; g = 0.93f; b = 1.0f;
+            } else if (!parseHexColor(v, r, g, b)) {
+                std::cerr << "Invalid --color '" << v
+                          << "'. Use white|yellow|sodium|xenon|#RRGGBB.\n";
+                return false;
+            }
+            colorR_ = r;
+            colorG_ = g;
+            colorB_ = b;
+            return true;
         } else if (arg == "--color-r" && i + 1 < argc) {
+            // Backward-compatible alias
             colorR_ = std::atof(argv[++i]);
             return true;
         } else if (arg == "--color-g" && i + 1 < argc) {
+            // Backward-compatible alias
             colorG_ = std::atof(argv[++i]);
             return true;
         } else if (arg == "--color-b" && i + 1 < argc) {
+            // Backward-compatible alias
             colorB_ = std::atof(argv[++i]);
             return true;
         }

@@ -3,8 +3,11 @@
 
 #include "effect_generator.h"
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <iostream>
 #include <random>
+#include <string>
 #include <vector>
 
 struct Sparkle {
@@ -42,6 +45,10 @@ private:
     float fadeOutSec_;
     float brightThreshold_;
     float brightBias_;
+    bool customColorEnabled_;
+    float customColorR_;
+    float customColorG_;
+    float customColorB_;
 
     std::vector<float> luma_;
     std::vector<float> gradient_;
@@ -52,6 +59,42 @@ private:
 
     float clamp01(float v) const {
         return std::min(1.0f, std::max(0.0f, v));
+    }
+
+    static bool parseHexColor(const std::string& value, float& outR, float& outG, float& outB) {
+        if (value.size() != 7 || value[0] != '#') return false;
+        auto hexNibble = [](char c) -> int {
+            unsigned char uc = (unsigned char)c;
+            if (uc >= '0' && uc <= '9') return (int)(uc - '0');
+            uc = (unsigned char)std::tolower(uc);
+            if (uc >= 'a' && uc <= 'f') return (int)(10 + (uc - 'a'));
+            return -1;
+        };
+        int hiR = hexNibble(value[1]), loR = hexNibble(value[2]);
+        int hiG = hexNibble(value[3]), loG = hexNibble(value[4]);
+        int hiB = hexNibble(value[5]), loB = hexNibble(value[6]);
+        if (hiR < 0 || loR < 0 || hiG < 0 || loG < 0 || hiB < 0 || loB < 0) return false;
+        int r = hiR * 16 + loR;
+        int g = hiG * 16 + loG;
+        int b = hiB * 16 + loB;
+        outR = r / 255.0f;
+        outG = g / 255.0f;
+        outB = b / 255.0f;
+        return true;
+    }
+
+    void assignSparkleColor(Sparkle& s, float tint) {
+        if (customColorEnabled_) {
+            // Keep a subtle variation so large fields of sparkles don't look flat.
+            float t = 1.0f + tint * 0.35f;
+            s.r = clamp01(customColorR_ * t);
+            s.g = clamp01(customColorG_ * t);
+            s.b = clamp01(customColorB_ * t);
+            return;
+        }
+        s.r = clamp01(1.0f + tint);
+        s.g = clamp01(1.0f + tint * 0.6f);
+        s.b = clamp01(1.0f + tint * 0.2f);
     }
 
     void drawSoftDisk(std::vector<uint8_t>& frame, float cx, float cy, float radius, float opacity, float colR, float colG, float colB) {
@@ -211,9 +254,7 @@ private:
         s.targetIntensity = s.baseIntensity;
         s.phase = phaseDist(rng_);
         float tint = tintDist(rng_);
-        s.r = clamp01(1.0f + tint);
-        s.g = clamp01(1.0f + tint * 0.6f);
-        s.b = clamp01(1.0f + tint * 0.2f);
+        assignSparkleColor(s, tint);
     }
 
     void seedSparkleRandom(Sparkle& s) {
@@ -230,9 +271,7 @@ private:
         s.targetIntensity = s.baseIntensity;
         s.phase = phaseDist(rng_);
         float tint = tintDist(rng_);
-        s.r = clamp01(1.0f + tint);
-        s.g = clamp01(1.0f + tint * 0.6f);
-        s.b = clamp01(1.0f + tint * 0.2f);
+        assignSparkleColor(s, tint);
     }
 
     void ensureSparkles(const std::vector<Hotspot>& hotspots, float maxScore) {
@@ -262,6 +301,7 @@ public:
           rotationSpeedDeg_(25.0f), twinkleSpeed_(1.6f),
           intensityScale_(1.0f), fadeInSec_(0.6f), fadeOutSec_(1.2f),
           brightThreshold_(235.0f), brightBias_(0.8f),
+          customColorEnabled_(false), customColorR_(1.0f), customColorG_(1.0f), customColorB_(1.0f),
           rng_(std::random_device{}()) {}
 
     std::string getName() const override { return "sparkle"; }
@@ -285,6 +325,7 @@ public:
         opts.push_back({"--fade-out", "float", 0.0, 1000.0, true, "Seconds to fade sparkles out", "1.2"});
         opts.push_back({"--bright-threshold", "float", 0.0, 255.0, true, "Luma threshold for bright-edge bias", "235"});
         opts.push_back({"--bright-bias", "float", 0.0, 10.0, true, "Bias strength favoring edges near bright pixels", "0.8"});
+        opts.push_back({"--color", "string", 0, 0, false, "Sparkle color: auto|white|#RRGGBB", "auto"});
         return opts;
     }
 
@@ -336,6 +377,29 @@ public:
             return true;
         } else if (arg == "--bright-bias" && i + 1 < argc) {
             brightBias_ = std::max(0.0f, (float)std::atof(argv[++i]));
+            return true;
+        } else if (arg == "--color" && i + 1 < argc) {
+            std::string v = argv[++i];
+            if (v == "auto") {
+                customColorEnabled_ = false;
+                return true;
+            }
+            if (v == "white") {
+                customColorEnabled_ = true;
+                customColorR_ = 1.0f;
+                customColorG_ = 1.0f;
+                customColorB_ = 1.0f;
+                return true;
+            }
+            float r = 1.0f, g = 1.0f, b = 1.0f;
+            if (!parseHexColor(v, r, g, b)) {
+                std::cerr << "Invalid --color '" << v << "'. Use auto|white|#RRGGBB.\n";
+                return false;
+            }
+            customColorEnabled_ = true;
+            customColorR_ = r;
+            customColorG_ = g;
+            customColorB_ = b;
             return true;
         }
         return false;

@@ -5,6 +5,7 @@
 #include <random>
 #include <cmath>
 #include <algorithm>
+#include <cctype>
 #include <iostream>
 
 struct Snowflake {
@@ -41,7 +42,7 @@ private:
     };
 
     enum class ColorMode {
-        HSV = 0,
+        Solid = 0,
         Pink = 1,
         Red = 2,
         Valentine = 3
@@ -59,16 +60,15 @@ private:
     // how long (seconds) a flake fades out after timeout
     float timeoutFadeDuration_;
     // color controls
-    float avgHue_; // 0..1
-    float saturation_; // 0..1
+    float baseHue_; // 0..1
+    float baseSaturation_; // 0..1
+    float baseValue_; // 0..1
     float hueRange_; // 0..1
     int frameCount_;
-    bool spin_;
     float spinFraction_;
     float spinMinAspect_;
-    int spinAxis_; // 0=random, 1=horizontal, 2=vertical
+    int spinAxis_; // 0=random, 1=horizontal, 2=vertical, 3=off
     ShapeMode shapeMode_;
-    bool heartVerticalSpin_;
     ColorMode colorMode_;
     
     std::vector<Snowflake> flakes_;
@@ -96,6 +96,51 @@ private:
         }
     }
 
+    void rgbToHsv(float r, float g, float b, float &h, float &s, float &v) {
+        float maxc = std::max(r, std::max(g, b));
+        float minc = std::min(r, std::min(g, b));
+        float delta = maxc - minc;
+        v = maxc;
+        s = (maxc <= 0.0f) ? 0.0f : (delta / maxc);
+        if (delta <= 0.000001f) {
+            h = 0.0f;
+            return;
+        }
+        if (maxc == r) {
+            h = (g - b) / delta;
+            if (g < b) h += 6.0f;
+        } else if (maxc == g) {
+            h = 2.0f + (b - r) / delta;
+        } else {
+            h = 4.0f + (r - g) / delta;
+        }
+        h /= 6.0f;
+        if (h < 0.0f) h += 1.0f;
+        if (h >= 1.0f) h -= 1.0f;
+    }
+
+    bool parseHexColor(const std::string& value, float& outR, float& outG, float& outB) {
+        if (value.size() != 7 || value[0] != '#') return false;
+        auto hexNibble = [](char c) -> int {
+            unsigned char uc = (unsigned char)c;
+            if (uc >= '0' && uc <= '9') return (int)(uc - '0');
+            uc = (unsigned char)std::tolower(uc);
+            if (uc >= 'a' && uc <= 'f') return (int)(10 + (uc - 'a'));
+            return -1;
+        };
+        int hiR = hexNibble(value[1]), loR = hexNibble(value[2]);
+        int hiG = hexNibble(value[3]), loG = hexNibble(value[4]);
+        int hiB = hexNibble(value[5]), loB = hexNibble(value[6]);
+        if (hiR < 0 || loR < 0 || hiG < 0 || loG < 0 || hiB < 0 || loB < 0) return false;
+        int r = hiR * 16 + loR;
+        int g = hiG * 16 + loG;
+        int b = hiB * 16 + loB;
+        outR = r / 255.0f;
+        outG = g / 255.0f;
+        outB = b / 255.0f;
+        return true;
+    }
+
     static float smoothstep(float edge0, float edge1, float x) {
         float t = std::clamp((x - edge0) / std::max(0.00001f, edge1 - edge0), 0.0f, 1.0f);
         return t * t * (3.0f - 2.0f * t);
@@ -103,43 +148,38 @@ private:
     
     void assignFlakeColor(Snowflake& f) {
         std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
-        float hue = avgHue_;
-        float sat = std::clamp(saturation_, 0.0f, 1.0f);
-        float val = 1.0f;
+        float hue = baseHue_;
+        float sat = std::clamp(baseSaturation_, 0.0f, 1.0f);
+        float val = std::clamp(baseValue_, 0.0f, 1.0f);
 
         if (colorMode_ == ColorMode::Pink) {
-            hue = std::clamp(0.92f + std::uniform_real_distribution<float>(-0.03f, 0.03f)(rng_), 0.0f, 1.0f);
-            sat = std::clamp(0.55f + std::uniform_real_distribution<float>(-0.15f, 0.20f)(rng_), 0.0f, 1.0f);
-            val = std::clamp(0.95f + std::uniform_real_distribution<float>(-0.05f, 0.05f)(rng_), 0.0f, 1.0f);
+            hue = 0.92f;
+            sat = 0.62f;
+            val = 0.95f;
         } else if (colorMode_ == ColorMode::Red) {
-            // Wrap around hue=0 for deep reds.
-            float h = std::uniform_real_distribution<float>(-0.02f, 0.02f)(rng_);
-            if (h < 0.0f) h += 1.0f;
-            hue = h;
-            sat = std::clamp(0.80f + std::uniform_real_distribution<float>(-0.15f, 0.12f)(rng_), 0.0f, 1.0f);
-            val = std::clamp(0.92f + std::uniform_real_distribution<float>(-0.08f, 0.08f)(rng_), 0.0f, 1.0f);
+            hue = 0.0f;
+            sat = 0.92f;
+            val = 0.95f;
         } else if (colorMode_ == ColorMode::Valentine) {
             // Mix pink and red hearts.
             bool pink = (dist01(rng_) < 0.5f);
             if (pink) {
-                hue = std::clamp(0.92f + std::uniform_real_distribution<float>(-0.03f, 0.03f)(rng_), 0.0f, 1.0f);
-                sat = std::clamp(0.55f + std::uniform_real_distribution<float>(-0.15f, 0.20f)(rng_), 0.0f, 1.0f);
-                val = std::clamp(0.95f + std::uniform_real_distribution<float>(-0.05f, 0.05f)(rng_), 0.0f, 1.0f);
+                hue = 0.92f;
+                sat = 0.62f;
+                val = 0.95f;
             } else {
-                float h = std::uniform_real_distribution<float>(-0.02f, 0.02f)(rng_);
-                if (h < 0.0f) h += 1.0f;
-                hue = h;
-                sat = std::clamp(0.80f + std::uniform_real_distribution<float>(-0.15f, 0.12f)(rng_), 0.0f, 1.0f);
-                val = std::clamp(0.92f + std::uniform_real_distribution<float>(-0.08f, 0.08f)(rng_), 0.0f, 1.0f);
+                hue = 0.0f;
+                sat = 0.92f;
+                val = 0.95f;
             }
-        } else {
-            if (hueRange_ > 0.0f) {
-                float halfRange = hueRange_ * 0.5f;
-                std::uniform_real_distribution<float> distHueOffset(-halfRange, halfRange);
-                hue = hue + distHueOffset(rng_);
-                if (hue < 0.0f) hue += 1.0f;
-                if (hue >= 1.0f) hue -= 1.0f;
-            }
+        }
+
+        if (hueRange_ > 0.0f) {
+            float halfRange = hueRange_ * 0.5f;
+            std::uniform_real_distribution<float> distHueOffset(-halfRange, halfRange);
+            hue = hue + distHueOffset(rng_);
+            if (hue < 0.0f) hue += 1.0f;
+            if (hue >= 1.0f) hue -= 1.0f;
         }
 
         float r, g, b;
@@ -198,11 +238,12 @@ private:
         f.sizeFreq = distSizeFreq(rng_);
         // size/shape pulse params
         // Decide whether this flake will spin (only a portion do)
-        bool enableSpin = spin_;
-        if (shapeMode_ == ShapeMode::Heart && !heartVerticalSpin_) {
-            enableSpin = false;
+        bool enableSpin = (spinAxis_ != 3);
+        if (shapeMode_ == ShapeMode::Heart) {
+            // Heart animation is only supported for vertical-axis spin.
+            enableSpin = (spinAxis_ == 2);
         }
-        if (shapeMode_ == ShapeMode::Heart && heartVerticalSpin_) {
+        if (shapeMode_ == ShapeMode::Heart && spinAxis_ == 2) {
             f.spinEnabled = true;
             f.spinHorizontal = false; // vertical-axis spin narrows width
             f.sizeAmpX = 0.0f;
@@ -353,7 +394,7 @@ public:
     SnowflakeEffect()
         : numFlakes_(150), avgSize_(3.0f), sizeVariance_(1.5f), minSize_(0.5f), maxSize_(-1.0f), sizeBias_(2.0f),
             avgMotionX_(0.5f), avgMotionY_(2.0f), motionRandomness_(1.0f),
-            softness_(2.0f), maxBrightness_(1.0f), brightnessSpeed_(1.0f), timeoutFadeDuration_(0.8f), avgHue_(0.0f), saturation_(0.0f), hueRange_(0.0f), frameCount_(0), spin_(true), spinFraction_(0.55f), spinMinAspect_(0.1f), spinAxis_(0), shapeMode_(ShapeMode::Ellipse), heartVerticalSpin_(false), colorMode_(ColorMode::HSV), rng_(std::random_device{}()) {}
+            softness_(2.0f), maxBrightness_(1.0f), brightnessSpeed_(1.0f), timeoutFadeDuration_(0.8f), baseHue_(0.0f), baseSaturation_(0.0f), baseValue_(1.0f), hueRange_(0.0f), frameCount_(0), spinFraction_(0.55f), spinMinAspect_(0.1f), spinAxis_(0), shapeMode_(ShapeMode::Ellipse), colorMode_(ColorMode::Solid), rng_(std::random_device{}()) {}
         
     
     std::string getName() const override {
@@ -371,24 +412,20 @@ public:
         std::vector<Opt> opts;
         opts.push_back({"--flakes", "int", 1, 10000, true, "Number of snowflakes", "150"});
         opts.push_back({"--size", "float", 0.01, 50.0, true, "Average snowflake size", "3.0"});
-        opts.push_back({"--size-var", "float", 0.0, 50.0, true, "Size variance", "1.5"});
+        opts.push_back({"--size-var", "float", 0.0, 50.0, true, "Size variance", "1.5", true});
         opts.push_back({"--motion-x", "float", -50.0, 50.0, true, "Average X motion per frame", "0.5"});
         opts.push_back({"--motion-y", "float", -50.0, 50.0, true, "Average Y motion per frame", "2.0"});
         opts.push_back({"--randomness", "float", 0.0, 20.0, true, "Motion randomness", "1.0"});
-        opts.push_back({"--softness", "float", 0.0, 50.0, true, "Edge softness/blur", "2.0"});
-        opts.push_back({"--brightness", "float", 0.0, 1.0, true, "Max brightness 0.0-1.0", "1.0"});
+        opts.push_back({"--softness", "float", 0.0, 50.0, true, "Edge softness/blur", "2.0", true});
+        opts.push_back({"--brightness", "float", 0.0, 1.0, true, "Max brightness 0.0-1.0", "1.0", true});
         opts.push_back({"--pulse", "float", 0.0, 100.0, true, "Average speed of brightness pulsing (set 0 to disable)", "1.0"});
-        opts.push_back({"--hue", "float", 0.0, 1.0, true, "Average hue 0.0-1.0", "0.0"});
-        opts.push_back({"--saturation", "float", 0.0, 1.0, true, "Saturation 0.0-1.0", "0.0"});
-        opts.push_back({"--hue-range", "float", 0.0, 1.0, true, "Hue range 0.0-1.0", "0.0"});
+        opts.push_back({"--color", "string", 0, 0, false, "Base flake color: white|pink|red|valentine|#RRGGBB", "white"});
+        opts.push_back({"--hue-range", "float", 0.0, 1.0, true, "Hue range 0.0-1.0", "0.0", true});
         opts.push_back({"--shape", "string", 0, 0, false, "Flake shape: circle|heart", "circle"});
-        opts.push_back({"--heart-spin", "boolean", 0, 1, false, "For heart shape: spin around vertical axis", "false"});
-        opts.push_back({"--color-mode", "string", 0, 0, false, "Color mode: hsv|pink|red|valentine", "hsv"});
-        opts.push_back({"--no-spin", "boolean", 0, 1, false, "Disable spin-like aspect morphing", "false"});
-        opts.push_back({"--spin-axis", "string", 0, 0, false, "Axis for spin: h=horizontal, v=vertical, random=per-flake random", "random"});
-        opts.push_back({"--min-size", "float", 0.01, 10.0, true, "Minimum flake size", "0.5"});
-        opts.push_back({"--max-size", "float", 0.01, 600.0, true, "Maximum flake size (default: avgSize*6)", ""});
-        opts.push_back({"--size-bias", "float", 0.0, 100.0, true, "Bias for exponential size distribution (>0). Larger => more small flakes", "2.0"});
+        opts.push_back({"--spin-axis", "string", 0, 0, false, "Spin mode/axis: off|random|h|horizontal|v|vertical (heart spin only animates when set to vertical)", "random", true});
+        opts.push_back({"--min-size", "float", 0.01, 10.0, true, "Minimum flake size", "0.5", true});
+        opts.push_back({"--max-size", "float", 0.01, 600.0, true, "Maximum flake size (default: avgSize*6)", "", true});
+        opts.push_back({"--size-bias", "float", 0.0, 100.0, true, "Bias for exponential size distribution (>0). Larger => more small flakes", "2.0", true});
         return opts;
     }
     
@@ -436,11 +473,28 @@ public:
         } else if (arg == "--pulse" && i + 1 < argc) {
             brightnessSpeed_ = std::atof(argv[++i]);
             return true;
-        } else if (arg == "--hue" && i + 1 < argc) {
-            avgHue_ = std::atof(argv[++i]);
-            return true;
-        } else if (arg == "--saturation" && i + 1 < argc) {
-            saturation_ = std::atof(argv[++i]);
+        } else if (arg == "--color" && i + 1 < argc) {
+            std::string v = argv[++i];
+            if (v == "white") {
+                colorMode_ = ColorMode::Solid;
+                baseHue_ = 0.0f;
+                baseSaturation_ = 0.0f;
+                baseValue_ = 1.0f;
+            } else if (v == "pink") {
+                colorMode_ = ColorMode::Pink;
+            } else if (v == "red") {
+                colorMode_ = ColorMode::Red;
+            } else if (v == "valentine") {
+                colorMode_ = ColorMode::Valentine;
+            } else {
+                float r = 1.0f, g = 1.0f, b = 1.0f;
+                if (!parseHexColor(v, r, g, b)) {
+                    std::cerr << "Invalid --color '" << v << "'. Use white|pink|red|valentine|#RRGGBB\n";
+                    return false;
+                }
+                colorMode_ = ColorMode::Solid;
+                rgbToHsv(r, g, b, baseHue_, baseSaturation_, baseValue_);
+            }
             return true;
         } else if (arg == "--hue-range" && i + 1 < argc) {
             hueRange_ = std::atof(argv[++i]);
@@ -453,24 +507,40 @@ public:
                 shapeMode_ = ShapeMode::Ellipse;
             }
             return true;
-        } else if (arg == "--heart-spin") {
-            heartVerticalSpin_ = parseBoolValue(true);
+        } else if (arg == "--hue" && i + 1 < argc) {
+            // Backward-compatible alias
+            colorMode_ = ColorMode::Solid;
+            baseHue_ = std::clamp((float)std::atof(argv[++i]), 0.0f, 1.0f);
+            return true;
+        } else if (arg == "--saturation" && i + 1 < argc) {
+            // Backward-compatible alias
+            colorMode_ = ColorMode::Solid;
+            baseSaturation_ = std::clamp((float)std::atof(argv[++i]), 0.0f, 1.0f);
             return true;
         } else if (arg == "--color-mode" && i + 1 < argc) {
+            // Backward-compatible alias mapping to --color presets
             std::string v = argv[++i];
             if (v == "pink") colorMode_ = ColorMode::Pink;
             else if (v == "red") colorMode_ = ColorMode::Red;
             else if (v == "valentine") colorMode_ = ColorMode::Valentine;
-            else colorMode_ = ColorMode::HSV;
+            else colorMode_ = ColorMode::Solid;
+            return true;
+        } else if (arg == "--heart-spin") {
+            // Backwards-compatible alias:
+            // true => vertical spin mode, false => spin off.
+            spinAxis_ = parseBoolValue(true) ? 2 : 3;
             return true;
         } else if (arg == "--no-spin") {
+            // Backwards-compatible alias:
+            // true => spin off, false => random axis.
             bool disableSpin = parseBoolValue(true);
-            spin_ = !disableSpin;
+            spinAxis_ = disableSpin ? 3 : 0;
             return true;
         } else if (arg == "--spin-axis" && i + 1 < argc) {
             std::string v = argv[++i];
             if (v == "h" || v == "horizontal") spinAxis_ = 1;
             else if (v == "v" || v == "vertical") spinAxis_ = 2;
+            else if (v == "off" || v == "none") spinAxis_ = 3;
             else spinAxis_ = 0;
             return true;
         }
