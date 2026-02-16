@@ -48,8 +48,9 @@ public:
     // Describe the effect's options in a machine-readable form. Each
     // EffectOption contains the option name (e.g. "--size"), type
     // ("int","float","string","boolean"), an optional numeric
-    // range (low/high) and a short description. Default implementation
-    // returns an empty list for backwards compatibility.
+    // range (low/high), a short description, and an optional advanced
+    // flag for UI/help filtering. Default implementation returns an
+    // empty list for backwards compatibility.
     struct EffectOption {
         std::string name;
         std::string type; // "int", "float", "string", "boolean"
@@ -58,6 +59,7 @@ public:
         bool hasRange;
         std::string description;
         std::string defaultValue; // textual default value (empty if none)
+        bool advanced = false; // true if this option is intended for advanced users
     };
 
     virtual std::vector<EffectOption> getOptions() const {

@@ -13,8 +13,7 @@
 template <typename Options>
 void printHelp(const Options& opts) {
     // Generate textual help formatted from structured options
-    std::cout << "Effect Options:\n";
-    for (const auto &o : opts) {
+    auto printOptionLine = [](const auto& o) {
         std::cout << "  " << o.name;
         if (o.type == "int") std::cout << " <int>";
         else if (o.type == "float") std::cout << " <float>";
@@ -24,6 +23,29 @@ void printHelp(const Options& opts) {
         }
         std::cout << "\t" << o.description;
         std::cout << " (default: " << (o.defaultValue.empty() ? "none" : o.defaultValue) << ")\n";
+    };
+
+    std::cout << "Effect Options:\n";
+    bool hasBasic = false;
+    bool hasAdvanced = false;
+    for (const auto& o : opts) {
+        if (o.advanced) hasAdvanced = true;
+        else hasBasic = true;
+    }
+
+    if (hasBasic) {
+        std::cout << "Basic:\n";
+        for (const auto& o : opts) {
+            if (!o.advanced) printOptionLine(o);
+        }
+    }
+
+    if (hasAdvanced) {
+        if (hasBasic) std::cout << "\n";
+        std::cout << "Advanced:\n";
+        for (const auto& o : opts) {
+            if (o.advanced) printOptionLine(o);
+        }
     }
 }
 
@@ -155,6 +177,9 @@ void listEffectsJson() {
                 if (!o.defaultValue.empty()) {
                     jo.set("default", json_util::JsonValue(o.defaultValue));
                 }
+                if (o.advanced) {
+                    jo.set("advanced", json_util::JsonValue(true));
+                }
                 optArr.push_back(jo);
             }
             e.set("options", optArr);
@@ -219,6 +244,9 @@ int main(int argc, char** argv) {
                         jo.set("description", json_util::JsonValue(o.description));
                         if (!o.defaultValue.empty()) {
                             jo.set("default", json_util::JsonValue(o.defaultValue));
+                        }
+                        if (o.advanced) {
+                            jo.set("advanced", json_util::JsonValue(true));
                         }
                         optArr.push_back(jo);
                     }
