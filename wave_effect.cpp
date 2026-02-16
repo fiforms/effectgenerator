@@ -434,8 +434,10 @@ public:
         height_ = height;
         fps_ = fps;
         frameCount_ = 0;
-        // Always honor waves' own warmup setting, even when global warmup is active.
-        float internalWarmupSeconds = warmupSeconds_;
+        // Waves use their own warmup/replay logic for seamless looping.
+        // If no stage-specific warmup was provided, fall back to global warmup.
+        float internalWarmupSeconds = (warmupSeconds_ > 0.0f) ? warmupSeconds_ : globalWarmupSeconds_;
+        int globalWarmupFrames = (int)std::round(std::max(0.0f, globalWarmupSeconds_) * fps_);
         
         // Prepare warmup recording if requested (allocate before initial sources)
         if (internalWarmupSeconds > 0.0f) {
@@ -517,6 +519,10 @@ public:
             std::cerr << "Warmup complete. Resetting output frame count to 0.\n";
         }
         
+        // Global warmup is performed by the generator via update() calls after
+        // initialize(). Consume those calls without advancing wave simulation so
+        // wave warmup/replay timing is not shifted.
+        frameCount_ = -globalWarmupFrames;
         return true;
     }
 
@@ -644,6 +650,11 @@ public:
     }
     
     void update() override {
+        // Consume global warmup update ticks without mutating simulation state.
+        if (frameCount_ < 0) {
+            frameCount_++;
+            return;
+        }
         frameCount_++;
         
         // Update existing wave sources
