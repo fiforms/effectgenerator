@@ -301,8 +301,9 @@ public:
         opts.push_back({"--ground-fire-rate", "float", 0.1, 10.0, true,
             "Ground fire bursts per second", "5.0"});
 
-        opts.push_back({"--ground-fire-color", "string", 0, 0, true,
-            "Ground fire color (white, yellow, or hex #RRGGBB)", "white"});
+        opts.push_back({"--ground-fire-color", "string.color", 0, 0, false,
+            "Ground fire color", "white", false,
+            {"white", "yellow"}});
 
         return opts;
     }

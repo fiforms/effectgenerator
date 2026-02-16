@@ -325,7 +325,8 @@ public:
         opts.push_back({"--fade-out", "float", 0.0, 1000.0, true, "Seconds to fade sparkles out", "1.2"});
         opts.push_back({"--bright-threshold", "float", 0.0, 255.0, true, "Luma threshold for bright-edge bias", "235"});
         opts.push_back({"--bright-bias", "float", 0.0, 10.0, true, "Bias strength favoring edges near bright pixels", "0.8"});
-        opts.push_back({"--color", "string", 0, 0, false, "Sparkle color: auto|white|#RRGGBB", "auto"});
+        opts.push_back({"--color", "string.color", 0, 0, false, "Sparkle color", "auto", false,
+                        {"auto", "white"}});
         return opts;
     }
 

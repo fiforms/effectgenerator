@@ -18,11 +18,21 @@ void printHelp(const Options& opts) {
         if (o.type == "int") std::cout << " <int>";
         else if (o.type == "float") std::cout << " <float>";
         else if (o.type == "string") std::cout << " <string>";
+        else if (o.type == "string.color") std::cout << " <#RRGGBB|string>";
         if (o.hasRange) {
             std::cout << " [" << o.rangeLow << " to " << o.rangeHigh << "]";
         }
         std::cout << "\t" << o.description;
-        std::cout << " (default: " << (o.defaultValue.empty() ? "none" : o.defaultValue) << ")\n";
+        std::cout << " (default: " << (o.defaultValue.empty() ? "none" : o.defaultValue) << ")";
+        if (!o.choices.empty()) {
+            std::cout << "\n      choices: [";
+            for (size_t i = 0; i < o.choices.size(); ++i) {
+                if (i > 0) std::cout << ", ";
+                std::cout << o.choices[i];
+            }
+            std::cout << "]";
+        }
+        std::cout << "\n";
     };
 
     std::cout << "Effect Options:\n";
@@ -180,6 +190,13 @@ void listEffectsJson() {
                 if (o.advanced) {
                     jo.set("advanced", json_util::JsonValue(true));
                 }
+                if (!o.choices.empty()) {
+                    json_util::JsonValue choices = json_util::JsonValue::array();
+                    for (const auto& choice : o.choices) {
+                        choices.push_back(json_util::JsonValue(choice));
+                    }
+                    jo.set("choices", choices);
+                }
                 optArr.push_back(jo);
             }
             e.set("options", optArr);
@@ -247,6 +264,13 @@ int main(int argc, char** argv) {
                         }
                         if (o.advanced) {
                             jo.set("advanced", json_util::JsonValue(true));
+                        }
+                        if (!o.choices.empty()) {
+                            json_util::JsonValue choices = json_util::JsonValue::array();
+                            for (const auto& choice : o.choices) {
+                                choices.push_back(json_util::JsonValue(choice));
+                            }
+                            jo.set("choices", choices);
                         }
                         optArr.push_back(jo);
                     }

@@ -357,7 +357,8 @@ public:
         opts.push_back({"--frequency", "float", 0.0, 10.0, true, "Base wave frequency", "0.02"});
         opts.push_back({"--speed", "float", 0.0, 10000.0, true, "Wave propagation speed", "2.0"});
         opts.push_back({"--decay", "float", 0.0, 1000.0, true, "Wave decay with distance", "0.001"});
-        opts.push_back({"--direction", "string", 0, 0, false, "Wave direction: up/down/left/right/upleft/upright/downleft/downright", ""});
+        opts.push_back({"--direction", "string", 0, 0, false, "Wave direction: up/down/left/right/upleft/upright/downleft/downright", "", false,
+                        {"up", "down", "left", "right", "upleft", "upright", "downleft", "downright"}});
         opts.push_back({"--warmup", "float", 0.0, 100000.0, true, "Warmup time in seconds to stabilize waves", "0.0"});
         opts.push_back({"--light-angle", "float", -360.0, 360.0, true, "Light direction in degrees", "-45"});
         opts.push_back({"--light-intensity", "float", 0.0, 10.0, true, "Lighting effect strength", "0.3"});

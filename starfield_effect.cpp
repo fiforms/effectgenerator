@@ -229,7 +229,8 @@ public:
         opts.push_back({"--max-size", "float", 0.01, 100000.0, true, "Max visual size as star moves outward", "8.0"});
         opts.push_back({"--center-x", "float", -10000000.0, 10000000.0, true, "Center X in pixels (default: center of frame)", ""});
         opts.push_back({"--center-y", "float", -10000000.0, 10000000.0, true, "Center Y in pixels (default: center of frame)", ""});
-        opts.push_back({"--shape", "string", 0, 0, false, "Star shape: round, 4 (cross), or 6 (three-line)", "6"});
+        opts.push_back({"--shape", "string", 0, 0, false, "Star shape: round, 4 (cross), or 6 (three-line)", "6", false,
+                        {"round", "circle", "4", "6"}});
         return opts;
     }
 

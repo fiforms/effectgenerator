@@ -996,9 +996,11 @@ public:
         opts.push_back({"--pressure-iters", "int", 4, 160, true, "Pressure solver iterations", "12", true});
         opts.push_back({"--diffusion-iters", "int", 0, 8, true, "Scalar diffusion iterations", "1", true});
         opts.push_back({"--timescale", "float", 0.1, 5.0, true, "Simulation speed multiplier", "1.0", true});
-        opts.push_back({"--preset", "string", 0, 0, false, "Preset look: smallcandle, candle, campfire, bonfire, smoketrail, mist", "", false});
+        opts.push_back({"--preset", "string", 0, 0, false, "Preset look", "", false,
+                        {"smallcandle", "candle", "campfire", "bonfire", "smoketrail", "mist"}});
         opts.push_back({"--sources", "string", 0, 0, false, "Multiple burner points in output pixels as 'x1,y1,s1;x2,y2,s2;...' (scale s optional, default 1.0)", "", false});
-        opts.push_back({"--burner", "string", 0, 0, false, "Burner model: gaussian, tiki, hybrid, or cloud", "tiki", false});
+        opts.push_back({"--burner", "string", 0, 0, false, "Burner model", "tiki", false,
+                        {"gaussian", "tiki", "hybrid", "cloud"}});
         opts.push_back({"--source-width", "float", 0.0, 10000000.0, true, "Base burner width in output pixels", "", false});
         opts.push_back({"--source-height", "float", 0.0, 10000000.0, true, "Source region height in output pixels", "", false});
         opts.push_back({"--source-spread", "float", 0.2, 4.0, true, "How quickly the flame widens above the base (used by gaussian/tiki/hybrid; ignored by cloud)", "1.75", true});

@@ -224,7 +224,8 @@ public:
         opts.push_back({"--shadow-protect", "float", 0.0, 4.0, true, "How strongly dark areas resist brightening", "0.75"});
         opts.push_back({"--saturation-boost", "float", 0.0, 4.0, true, "Color saturation boost in lit areas", "1.4"});
         opts.push_back({"--pulse-depth", "float", 0.0, 2.0, true, "Per-ray breathing pulse depth", "0.22"});
-        opts.push_back({"--color", "string", 0, 0, false, "Laser color: white|yellow|sodium|xenon|#RRGGBB", "white"});
+        opts.push_back({"--color", "string.color", 0, 0, false, "Laser color", "white", false,
+                        {"white", "yellow", "sodium", "xenon"}});
         return opts;
     }
     

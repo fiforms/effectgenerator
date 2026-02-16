@@ -60,6 +60,7 @@ public:
         std::string description;
         std::string defaultValue; // textual default value (empty if none)
         bool advanced = false; // true if this option is intended for advanced users
+        std::vector<std::string> choices = {}; // optional list of allowed string values
     };
 
     virtual std::vector<EffectOption> getOptions() const {

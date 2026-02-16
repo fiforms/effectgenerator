@@ -175,7 +175,8 @@ public:
         opts.push_back({"--stars", "int", 1, 100000, true, "Number of stars", "120"});
         opts.push_back({"--twinkle-speed", "float", 0.0, 10000.0, true, "Average twinkle speed", "0.45"});
         opts.push_back({"--softness", "float", 0.0, 10000.0, true, "Edge softness/blur", "1.5"});
-        opts.push_back({"--type", "string", 0, 0, false, "Star type: small, bethlehem, or mixed", "mixed"});
+        opts.push_back({"--type", "string", 0, 0, false, "Star type: small, bethlehem, or mixed", "mixed", false,
+                        {"small", "bethlehem", "mixed"}});
         opts.push_back({"--mix-ratio", "float", 0.0, 1.0, true, "When mixed, fraction of small stars (0..1)", "0.95"});
         opts.push_back({"--ground-threshold", "float", 0.0, 10000000.0, true, "Ground band (in output pixels from bottom) where stars are not placed", "0.0"});
         return opts;

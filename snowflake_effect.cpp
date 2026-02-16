@@ -419,10 +419,13 @@ public:
         opts.push_back({"--softness", "float", 0.0, 50.0, true, "Edge softness/blur", "2.0", true});
         opts.push_back({"--brightness", "float", 0.0, 1.0, true, "Max brightness 0.0-1.0", "1.0", true});
         opts.push_back({"--pulse", "float", 0.0, 100.0, true, "Average speed of brightness pulsing (set 0 to disable)", "1.0"});
-        opts.push_back({"--color", "string", 0, 0, false, "Base flake color: white|pink|red|valentine|#RRGGBB", "white"});
+        opts.push_back({"--color", "string.color", 0, 0, false, "Base flake color", "white", false,
+                        {"white", "pink", "red", "valentine"}});
         opts.push_back({"--hue-range", "float", 0.0, 1.0, true, "Hue range 0.0-1.0", "0.0", true});
-        opts.push_back({"--shape", "string", 0, 0, false, "Flake shape: circle|heart", "circle"});
-        opts.push_back({"--spin-axis", "string", 0, 0, false, "Spin mode/axis: off|random|h|horizontal|v|vertical (heart spin only animates when set to vertical)", "random", true});
+        opts.push_back({"--shape", "string", 0, 0, false, "Flake shape: circle|heart", "circle", false,
+                        {"circle", "heart"}});
+        opts.push_back({"--spin-axis", "string", 0, 0, false, "Spin mode/axis: off|random|h|horizontal|v|vertical (heart spin only animates when set to vertical)", "random", true,
+                        {"off", "none", "random", "h", "horizontal", "v", "vertical"}});
         opts.push_back({"--min-size", "float", 0.01, 10.0, true, "Minimum flake size", "0.5", true});
         opts.push_back({"--max-size", "float", 0.01, 600.0, true, "Maximum flake size (default: avgSize*6)", "", true});
         opts.push_back({"--size-bias", "float", 0.0, 100.0, true, "Bias for exponential size distribution (>0). Larger => more small flakes", "2.0", true});
