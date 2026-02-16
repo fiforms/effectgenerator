@@ -206,7 +206,7 @@ private:
     bool startFFmpegOutput(const char* filename);
     // Probe the duration (in seconds) of a video file using ffprobe if available.
     double probeVideoDuration(const char* filename);
-    float getFadeMultiplier(int frameNumber, int totalFrames);
+    float getFadeMultiplier(int frameNumber, int totalFrames, float maxFadeRatio);
     
 public:
     VideoGenerator(int width, int height, int fps, float fadeDuration, float maxFadeRatio, int crf = 23, std::string audioCodec = "", std::string audioBitrate = "");
@@ -218,6 +218,7 @@ public:
     bool setBackgroundImage(const char* filename);
     bool setBackgroundVideo(const char* filename);
     
+    bool generate(const std::vector<Effect*>& effects, const std::vector<float>& stageMaxFadeRatios, int durationSec, const char* outputFile);
     bool generate(const std::vector<Effect*>& effects, int durationSec, const char* outputFile);
     bool generate(Effect* effect, int durationSec, const char* outputFile);
 };

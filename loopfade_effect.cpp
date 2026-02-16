@@ -14,6 +14,7 @@ private:
     int crossfadeFrames_;
     int currentFrame_;
     int expectedTotalFrames_;
+    float globalWarmupSeconds_;
     
     // Storage for the beginning frames (offset by crossfade duration)
     std::vector<std::vector<uint8_t>> beginningFrames_;
@@ -22,7 +23,7 @@ private:
 public:
     LoopFadeEffect()
         : crossfadeDuration_(1.5f), crossfadeFrames_(0), currentFrame_(0), 
-          expectedTotalFrames_(-1), capturedBeginning_(false) {}
+          expectedTotalFrames_(-1), globalWarmupSeconds_(0.0f), capturedBeginning_(false) {}
     
     std::string getName() const override {
         return "loopfade";
@@ -56,7 +57,10 @@ public:
         fps_ = fps;
         
         crossfadeFrames_ = (int)(crossfadeDuration_ * fps);
-        currentFrame_ = 0;
+        // Ignore global warmup by offsetting the internal frame counter.
+        // The generator will call update() warmupFrames times before rendering.
+        int warmupFrames = (int)std::round(std::max(0.0f, globalWarmupSeconds_) * fps_);
+        currentFrame_ = -warmupFrames;
         capturedBeginning_ = false;
         
         // Pre-allocate storage for beginning frames
@@ -68,6 +72,10 @@ public:
         std::cerr << "Loop fade: " << crossfadeFrames_ << " frames (" 
                   << crossfadeDuration_ << "s) crossfade\n";        
         return true;
+    }
+
+    void setGlobalWarmupSeconds(float seconds) override {
+        globalWarmupSeconds_ = std::max(0.0f, seconds);
     }
     
     void renderFrame(std::vector<uint8_t>& frame, bool hasBackground, float fadeMultiplier) override {

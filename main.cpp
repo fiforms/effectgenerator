@@ -62,6 +62,8 @@ void printHelp(const Options& opts) {
 struct EffectInvocation {
     std::string name;
     std::unique_ptr<Effect> effect;
+    float maxFadeRatio = 1.0f;
+    bool hasMaxFadeOverride = false;
 };
 
 using EffectOptionMap = std::unordered_map<std::string, Effect::EffectOption>;
@@ -105,17 +107,18 @@ void printUsage(const char* prog) {
     std::cout << "  --help-<effectname>       Show help for specific effect\n";
     std::cout << "  --version                 Show program version\n\n";
     std::cout << "  --show                    Print resolved effect configuration and exit\n\n";
+    std::cout << "Global Effect Options:\n";
+    std::cout << "  --warmup <float>          Pre-run simulation time in seconds before first output frame (default: 0.0)\n";
+    std::cout << "  --fade <float>            Fade in/out duration in seconds (default: 0.0)\n";
+    std::cout << "  --max-fade <float>        Maximum opacity (0.0-1.0) for the current effect stage\n";
+    std::cout << "                            If provided before any --effect, it sets the default for all stages (default: 1.0)\n\n";
     std::cout << "Video Options:\n";
     std::cout << "  --width <int>             Video width (default: 1920)\n";
     std::cout << "  --height <int>            Video height (default: 1080)\n";
     std::cout << "  --fps <int>               Frames per second (default: 30)\n";
     std::cout << "  --duration <int>          Duration in seconds (default: 5)\n";
-    std::cout << "  --warmup <float>          Pre-run simulation time in seconds before first output frame (default: 0.0)\n";
-    std::cout << "  --fade <float>            Fade in/out duration in seconds (default: 0.0)\n";
-    std::cout << "  --max-fade <float>        Maximum opacity (0.0-1.0) of effect (default: 1.0)\n";
     std::cout << "  --background-image <path> Background image (JPG/PNG)\n";
     std::cout << "  --background-video <path> Background video (MP4/MOV/etc), or '-' for stdin rawvideo\n";
-    std::cout << "  --video-background <path> Alias for --background-video\n";
     std::cout << "  --crf <int>               Output video quality (default: 23, lower is better)\n\n";
     std::cout << "Audio Options:\n";
     std::cout << "  --audio-codec <string>    Output Audio Codec (passed to ffmpeg, default none)\n";
@@ -301,7 +304,7 @@ int main(int argc, char** argv) {
     int crf = 23;
     float warmupDuration = 0.0f;
     float fadeDuration = 0.0f;
-    float maxFadeRatio = 1.0f;
+    float defaultMaxFadeRatio = 1.0f;
     std::string output = "";
     bool showConfig = false;
     bool overwriteOutput = false;
@@ -328,11 +331,22 @@ int main(int argc, char** argv) {
 
             currentStage = (int)stages.size();
             stageOptionMaps.push_back(makeOptionMap(*effect));
-            stages.push_back({effectName, std::move(effect)});
+            EffectInvocation stage;
+            stage.name = effectName;
+            stage.effect = std::move(effect);
+            stage.maxFadeRatio = defaultMaxFadeRatio;
+            stage.hasMaxFadeOverride = false;
+            stages.push_back(std::move(stage));
             continue;
         }
 
         if (currentStage >= 0) {
+            if (arg == "--max-fade" && i + 1 < argc) {
+                stages[currentStage].maxFadeRatio = std::atof(argv[++i]);
+                stages[currentStage].hasMaxFadeOverride = true;
+                continue;
+            }
+
             auto optIt = stageOptionMaps[currentStage].find(arg);
             if (optIt != stageOptionMaps[currentStage].end()) {
                 const auto& opt = optIt->second;
@@ -382,7 +396,7 @@ int main(int argc, char** argv) {
         } else if (arg == "--fade" && i + 1 < argc) {
             fadeDuration = std::atof(argv[++i]);
         } else if (arg == "--max-fade" && i + 1 < argc) {
-            maxFadeRatio = std::atof(argv[++i]);
+            defaultMaxFadeRatio = std::atof(argv[++i]);
         } else if (arg == "--crf" && i + 1 < argc) {
             crf = std::atoi(argv[++i]);
         } else if (arg == "--audio-codec" && i + 1 < argc) {
@@ -397,7 +411,7 @@ int main(int argc, char** argv) {
             overwriteOutput = true;
         } else if (arg == "--background-image" && i + 1 < argc) {
             backgroundImage = argv[++i];
-        } else if ((arg == "--background-video" || arg == "--video-background") && i + 1 < argc) {
+        } else if ((arg == "--background-video") && i + 1 < argc) {
             backgroundVideo = argv[++i];
         } else {
             std::cerr << "Unknown or invalid argument: " << arg << "\n";
@@ -427,6 +441,7 @@ int main(int argc, char** argv) {
                 return 1;
             }
             std::cout << "\nStage " << (i + 1) << ": " << stage.effect->getName() << "\n";
+            std::cout << "Max fade ratio: " << stage.maxFadeRatio << "\n";
             stage.effect->printConfig(std::cout);
         }
         return 0;
@@ -452,7 +467,7 @@ int main(int argc, char** argv) {
     }
     
     // Create video generator (pass CLI CRF through)
-    VideoGenerator generator(width, height, fps, fadeDuration, maxFadeRatio, crf, audioCodec, audioBitrate);
+    VideoGenerator generator(width, height, fps, fadeDuration, defaultMaxFadeRatio, crf, audioCodec, audioBitrate);
     generator.setWarmupSeconds(warmupDuration);
     
     // Set background if specified
@@ -490,6 +505,12 @@ int main(int argc, char** argv) {
         infoOut << stages[i].effect->getName();
     }
     infoOut << "\n";
+    infoOut << "Stage Max Fade Ratios: ";
+    for (size_t i = 0; i < stages.size(); ++i) {
+        if (i) infoOut << ", ";
+        infoOut << stages[i].effect->getName() << "=" << stages[i].maxFadeRatio;
+    }
+    infoOut << "\n";
     infoOut << "Resolution: " << width << "x" << height << "\n";
     infoOut << "FPS: " << fps << "\n";
     if (duration == -1) {
@@ -501,7 +522,7 @@ int main(int argc, char** argv) {
     if (warmupDuration > 0.0f) {
         infoOut << "Warmup duration: " << warmupDuration << "s\n";
     }
-    infoOut << "Max Fade Ratio: " << maxFadeRatio << "\n";
+    infoOut << "Default Max Fade Ratio: " << defaultMaxFadeRatio << "\n";
     if (!backgroundImage.empty()) {
         infoOut << "Background image: " << backgroundImage << "\n";
     }
@@ -511,13 +532,16 @@ int main(int argc, char** argv) {
     infoOut << "Output: " << output << "\n\n";
     
     std::vector<Effect*> pipeline;
+    std::vector<float> stageMaxFadeRatios;
     pipeline.reserve(stages.size());
+    stageMaxFadeRatios.reserve(stages.size());
     for (auto& stage : stages) {
         pipeline.push_back(stage.effect.get());
+        stageMaxFadeRatios.push_back(stage.maxFadeRatio);
     }
 
     // Generate video
-    if (!generator.generate(pipeline, duration, output.c_str())) {
+    if (!generator.generate(pipeline, stageMaxFadeRatios, duration, output.c_str())) {
         std::cerr << "Error: Video generation failed\n";
         return 1;
     }

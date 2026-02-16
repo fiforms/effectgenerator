@@ -632,21 +632,32 @@ bool VideoGenerator::startFFmpegOutput(const char* filename) {
     return true;
 }
 
-float VideoGenerator::getFadeMultiplier(int frameNumber, int totalFrames) {
-    if (fadeDuration_ <= 0.0f) return maxFadeRatio_;
+float VideoGenerator::getFadeMultiplier(int frameNumber, int totalFrames, float maxFadeRatio) {
+    if (fadeDuration_ <= 0.0f) return maxFadeRatio;
     
     int fadeFrames = (int)(fadeDuration_ * fps_);
     
     if (frameNumber < fadeFrames) {
-        return (float)frameNumber * maxFadeRatio_ / fadeFrames;
+        return (float)frameNumber * maxFadeRatio / fadeFrames;
     } else if (frameNumber >= totalFrames - fadeFrames) {
-        return (float)(totalFrames - frameNumber) * maxFadeRatio_ / fadeFrames;
+        return (float)(totalFrames - frameNumber) * maxFadeRatio / fadeFrames;
     }
-    return maxFadeRatio_;
+    return maxFadeRatio;
 }
 
-bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationSec, const char* outputFile) {
+bool VideoGenerator::generate(const std::vector<Effect*>& effects, const std::vector<float>& stageMaxFadeRatios, int durationSec, const char* outputFile) {
     if (effects.empty()) return false;
+    if (stageMaxFadeRatios.size() != effects.size()) {
+        std::cerr << "Internal error: stage max-fade count does not match effect count\n";
+        return false;
+    }
+    for (float r : stageMaxFadeRatios) {
+        if (r < 0.0f || r > 1.0f) {
+            std::cerr << "Error: --max-fade must be between 0.0 and 1.0\n";
+            return false;
+        }
+    }
+
     const bool outputToStdoutRaw = (outputFile && std::strcmp(outputFile, "-") == 0);
     std::ostream& log = outputToStdoutRaw ? std::cerr : std::cout;
 
@@ -743,15 +754,15 @@ bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationS
         bool closed_ = false;
     };
 
-    auto computeStageFade = [&](int frameIndex, bool stageHasBackground) -> float {
+    auto computeStageFade = [&](int frameIndex, bool stageHasBackground, float stageMaxFadeRatio) -> float {
         if (!stageHasBackground) return 1.0f;
         if (autoDetectDuration) {
             int fadeFrames = (int)(fadeDuration_ * fps_);
-            if (fadeFrames <= 0) return 1.0f;
-            if (frameIndex < fadeFrames) return (float)frameIndex / fadeFrames;
-            return 1.0f;
+            if (fadeFrames <= 0) return stageMaxFadeRatio;
+            if (frameIndex < fadeFrames) return (float)frameIndex * stageMaxFadeRatio / fadeFrames;
+            return stageMaxFadeRatio;
         }
-        return getFadeMultiplier(frameIndex, totalFrames);
+        return getFadeMultiplier(frameIndex, totalFrames, stageMaxFadeRatio);
     };
 
     const size_t queueCapacity = 8;
@@ -770,6 +781,7 @@ bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationS
         workers.emplace_back([&, stage]() {
             Effect* effect = effects[stage];
             const bool stageHasBackground = hasBackground_ || stage > 0;
+            const float stageMaxFadeRatio = stageMaxFadeRatios[stage];
             FrameQueue* outputQueue = stageQueues[stage].get();
             FrameQueue* inputQueue = (stage == 0) ? nullptr : stageQueues[stage - 1].get();
 
@@ -805,7 +817,7 @@ bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationS
                     frame = std::move(input.frame);
                 }
 
-                float fadeMultiplier = computeStageFade(logicalFrame, stageHasBackground);
+                float fadeMultiplier = computeStageFade(logicalFrame, stageHasBackground, stageMaxFadeRatio);
                 effect->renderFrame(frame, stageHasBackground, fadeMultiplier);
 
                 bool dropFrame = false;
@@ -848,7 +860,7 @@ bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationS
         }
 
         if (!hasBackground_ && fadeDuration_ > 0.0f && !autoDetectDuration) {
-            float fadeMultiplier = getFadeMultiplier(packet.frameIndex, totalFrames);
+            float fadeMultiplier = getFadeMultiplier(packet.frameIndex, totalFrames, stageMaxFadeRatios.back());
             if (fadeMultiplier < 1.0f) {
                 for (size_t j = 0; j < packet.frame.size(); ++j) {
                     packet.frame[j] = (uint8_t)(packet.frame[j] * fadeMultiplier);
@@ -886,6 +898,12 @@ bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationS
         std::cout << "\nVideo saved to: " << outputFile << "\n";
     }
     return true;
+}
+
+bool VideoGenerator::generate(const std::vector<Effect*>& effects, int durationSec, const char* outputFile) {
+    std::vector<float> stageMaxFadeRatios;
+    stageMaxFadeRatios.assign(effects.size(), maxFadeRatio_);
+    return generate(effects, stageMaxFadeRatios, durationSec, outputFile);
 }
 
 bool VideoGenerator::generate(Effect* effect, int durationSec, const char* outputFile) {

@@ -434,8 +434,8 @@ public:
         height_ = height;
         fps_ = fps;
         frameCount_ = 0;
-        // Avoid duplicated pre-roll when global --warmup is active.
-        float internalWarmupSeconds = (globalWarmupSeconds_ > 0.0f) ? 0.0f : warmupSeconds_;
+        // Always honor waves' own warmup setting, even when global warmup is active.
+        float internalWarmupSeconds = warmupSeconds_;
         
         // Prepare warmup recording if requested (allocate before initial sources)
         if (internalWarmupSeconds > 0.0f) {
