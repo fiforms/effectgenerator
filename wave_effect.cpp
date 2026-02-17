@@ -67,15 +67,85 @@ private:
     float warmupSeconds_;
     int warmupFrames_;
     float globalWarmupSeconds_;
+    bool debug_;
     // Recorded spawns per warmup-frame index
     std::vector<std::vector<SpawnSpec>> warmupSpawns_;
     // If >0, when setTotalFrames() is called, we will replay warmupSpawns_
     // at the end of the video (to make the video loop seamlessly)
     int targetTotalFrames_;
+
+    struct LoopSignature {
+        float h1, h2, h3;
+        int activeCount;
+        float sumStrength;
+    };
+    bool haveFirstLoopSig_;
+    LoopSignature firstLoopSig_;
+    bool captureWarmupSpawns_;
     
     std::vector<WaveSource> sources_;
     std::mt19937 rng_;
     int frameCount_;
+
+    void collectSourceStats(int& activeCount, float& sumStrength) const {
+        activeCount = 0;
+        sumStrength = 0.0f;
+        for (const auto& ws : sources_) {
+            if (!ws.active) continue;
+            activeCount++;
+            sumStrength += ws.currentStrength;
+        }
+    }
+
+    LoopSignature captureLoopSignature() {
+        float x1 = width_ * 0.25f, y1 = height_ * 0.25f;
+        float x2 = width_ * 0.50f, y2 = height_ * 0.50f;
+        float x3 = width_ * 0.75f, y3 = height_ * 0.75f;
+
+        LoopSignature sig;
+        sig.h1 = calculateWaveHeight(x1, y1);
+        sig.h2 = calculateWaveHeight(x2, y2);
+        sig.h3 = calculateWaveHeight(x3, y3);
+        collectSourceStats(sig.activeCount, sig.sumStrength);
+        return sig;
+    }
+
+    bool shouldLogLoopFrame(int frame) const {
+        if (!debug_) return false;
+        if (warmupFrames_ <= 0 || targetTotalFrames_ <= 0) return false;
+        int replayStart = targetTotalFrames_ - warmupFrames_;
+        if (frame <= 2) return true;
+        if (frame >= targetTotalFrames_ - 3) return true;
+        if (frame == replayStart - 1 || frame == replayStart) return true;
+        return false;
+    }
+
+    void logLoopFrameState(const char* tag, int frame) {
+        if (!shouldLogLoopFrame(frame)) return;
+
+        LoopSignature sig = captureLoopSignature();
+
+        int replayStart = targetTotalFrames_ - warmupFrames_;
+        std::cerr << "[wave-loop][" << tag << "] frame=" << frame
+                  << " replayStart=" << replayStart
+                  << " inReplay=" << ((frame >= replayStart) ? "yes" : "no")
+                  << " active=" << sig.activeCount
+                  << " sumStrength=" << sig.sumStrength
+                  << " h=(" << sig.h1 << "," << sig.h2 << "," << sig.h3 << ")\n";
+
+        if (frame == 0) {
+            firstLoopSig_ = sig;
+            haveFirstLoopSig_ = true;
+        }
+        if (frame == targetTotalFrames_ - 1 && haveFirstLoopSig_) {
+            std::cerr << "[wave-loop][seam-compare] last-vs-first "
+                      << "dActive=" << (sig.activeCount - firstLoopSig_.activeCount)
+                      << " dStrength=" << (sig.sumStrength - firstLoopSig_.sumStrength)
+                      << " dH=(" << (sig.h1 - firstLoopSig_.h1) << ","
+                      << (sig.h2 - firstLoopSig_.h2) << ","
+                      << (sig.h3 - firstLoopSig_.h3) << ")\n";
+        }
+    }
     
     void getSpawnRegionForDirection(const std::string& dir, float& minX, float& maxX, float& minY, float& maxY) {
         // Offscreen margin
@@ -189,16 +259,27 @@ private:
     }
     
     void spawnRandomSource() {
+        // update() increments frameCount_ before calling this function, so use
+        // the just-simulated frame index for warmup/replay bookkeeping.
+        int simFrame = frameCount_ - 1;
+
         // If we've been given a target total frame count and warmup recordings,
         // replay the recorded spawns mapped to the end of the video so the
         // sequence matches the warmup (for seamless looping).
         if (targetTotalFrames_ > 0 && warmupFrames_ > 0) {
             int replayStart = targetTotalFrames_ - warmupFrames_;
-            if (frameCount_ >= replayStart && frameCount_ < targetTotalFrames_) {
-                int idx = frameCount_ - replayStart;
+            if (simFrame >= replayStart && simFrame < targetTotalFrames_) {
+                int idx = simFrame - replayStart;
                 if (idx >= 0 && idx < (int)warmupSpawns_.size()) {
+                    int replayed = 0;
                     for (const auto& spec : warmupSpawns_[idx]) {
                         createSourceFromSpec(spec, frameCount_);
+                        replayed++;
+                    }
+                    if (shouldLogLoopFrame(simFrame)) {
+                        std::cerr << "[wave-loop][replay] frame=" << simFrame
+                                  << " idx=" << idx
+                                  << " replayedSpawns=" << replayed << "\n";
                     }
                 }
                 return;
@@ -273,8 +354,8 @@ private:
 
             // Create and (if in warmup) record the parameters
             createSourceFromSpec(spec, frameCount_);
-            if (warmupFrames_ > 0 && frameCount_ < warmupFrames_) {
-                warmupSpawns_[frameCount_].push_back(spec);
+            if (captureWarmupSpawns_ && warmupFrames_ > 0 && simFrame >= 0 && simFrame < warmupFrames_) {
+                warmupSpawns_[simFrame].push_back(spec);
             }
         }
     }
@@ -338,7 +419,9 @@ public:
           lightAngle_(-kPi / 4.0f), lightIntensity_(0.3f), waveInterference_(1.0f),
                     displacementScale_(10.0f), useDisplacement_(true), waveDirection_(""),
           sourceSpawnProb_(0.06f), offscreenProb_(0.5f),
-                    minLifetime_(2.0f), maxLifetime_(8.0f),
+                    minLifetime_(2.0f), maxLifetime_(8.0f), debug_(false),
+                    haveFirstLoopSig_(false), firstLoopSig_{0.0f, 0.0f, 0.0f, 0, 0.0f},
+                    captureWarmupSpawns_(false),
                     rng_(std::random_device{}()), frameCount_(0), warmupSeconds_(0.0f), warmupFrames_(0), globalWarmupSeconds_(0.0f), targetTotalFrames_(-1) {}
     
     std::string getName() const override {
@@ -369,6 +452,7 @@ public:
         opts.push_back({"--offscreen-prob", "float", 0.0, 1.0, true, "Probability source is offscreen", "0.5"});
         opts.push_back({"--min-lifetime", "float", 0.0, 100000.0, true, "Min source lifetime in seconds", "2.0"});
         opts.push_back({"--max-lifetime", "float", 0.0, 100000.0, true, "Max source lifetime in seconds", "8.0"});
+        opts.push_back({"--debug", "boolean", 0, 1, false, "Enable waves loop-debug logging", "false"});
         return opts;
     }
     
@@ -424,6 +508,9 @@ public:
         } else if (arg == "--warmup" && i + 1 < argc) {
             warmupSeconds_ = std::atof(argv[++i]);
             return true;
+        } else if (arg == "--debug") {
+            debug_ = true;
+            return true;
         }
         
         return false;
@@ -434,6 +521,8 @@ public:
         height_ = height;
         fps_ = fps;
         frameCount_ = 0;
+        haveFirstLoopSig_ = false;
+        captureWarmupSpawns_ = false;
         // Waves use their own warmup/replay logic for seamless looping.
         // If no stage-specific warmup was provided, fall back to global warmup.
         float internalWarmupSeconds = (warmupSeconds_ > 0.0f) ? warmupSeconds_ : globalWarmupSeconds_;
@@ -454,7 +543,14 @@ public:
         std::uniform_real_distribution<float> distLife(minLifetime_, maxLifetime_);
 
         sources_.clear();
-        for (int i = 0; i < numSources_; i++) {
+        int initialSourcesToCreate = numSources_;
+        if (warmupFrames_ > 0) {
+            initialSourcesToCreate = 0;
+            if (debug_) {
+                std::cerr << "[wave-loop][config] warmup active: skipping fixed initial sources\n";
+            }
+        }
+        for (int i = 0; i < initialSourcesToCreate; i++) {
             float x = distX(rng_);
             float y = distY(rng_);
             int lifetime = (int)(distLife(rng_) * fps_);
@@ -486,7 +582,6 @@ public:
             }
 
             createSourceFromSpec(spec, 0);
-            if (warmupFrames_ > 0) warmupSpawns_[0].push_back(spec);
         }
         
         std::cerr << "Wave effect initialized with " << numSources_ << " initial sources\n";
@@ -502,9 +597,11 @@ public:
             std::cerr << "Warming up simulation for " << internalWarmupSeconds << "s (" << warmupFrames_ << " frames)";
             std::cerr << "...\n";
 
+            captureWarmupSpawns_ = true;
             for (int i = 0; i < warmupFrames_; ++i) {
                 update();
             }
+            captureWarmupSpawns_ = false;
 
             // After warmup, shift source start/end frames backwards so we can reset
             // the logical output frame counter to zero while preserving ages.
@@ -517,6 +614,22 @@ public:
             frameCount_ = 0;
 
             std::cerr << "Warmup complete. Resetting output frame count to 0.\n";
+        }
+
+        if (debug_ && warmupFrames_ > 0 && targetTotalFrames_ > 0) {
+            int replayStart = targetTotalFrames_ - warmupFrames_;
+            int totalRecorded = 0;
+            int nonEmptyWarmupFrames = 0;
+            for (const auto& bucket : warmupSpawns_) {
+                totalRecorded += (int)bucket.size();
+                if (!bucket.empty()) nonEmptyWarmupFrames++;
+            }
+            std::cerr << "[wave-loop][config] totalFrames=" << targetTotalFrames_
+                      << " warmupFrames=" << warmupFrames_
+                      << " replayStart=" << replayStart
+                      << " recordedSpawns=" << totalRecorded
+                      << " nonEmptyWarmupFrames=" << nonEmptyWarmupFrames
+                      << "\n";
         }
         
         // Global warmup is performed by the generator via update() calls after
@@ -572,6 +685,7 @@ public:
     }
     
     void renderFrame(std::vector<uint8_t>& frame, bool hasBackground, float fadeMultiplier) override {
+        logLoopFrameState("render", frameCount_);
         if (!hasBackground) {
             // Without background, just show the waves as grayscale
             for (int y = 0; y < height_; y++) {
@@ -656,6 +770,7 @@ public:
             return;
         }
         frameCount_++;
+        int simFrame = frameCount_ - 1;
         
         // Update existing wave sources
         for (auto& ws : sources_) {
@@ -713,6 +828,21 @@ public:
         
         // Randomly spawn new sources
         spawnRandomSource();
+
+        // Compare the true loop seam: frame 0 state vs state after final update
+        // (the would-be render of frame targetTotalFrames_).
+        if (warmupFrames_ > 0 && targetTotalFrames_ > 0 &&
+            simFrame == targetTotalFrames_ - 1 && haveFirstLoopSig_) {
+            LoopSignature nextSig = captureLoopSignature();
+            if (debug_) {
+                std::cerr << "[wave-loop][seam-next] next-vs-first "
+                          << "dActive=" << (nextSig.activeCount - firstLoopSig_.activeCount)
+                          << " dStrength=" << (nextSig.sumStrength - firstLoopSig_.sumStrength)
+                          << " dH=(" << (nextSig.h1 - firstLoopSig_.h1) << ","
+                          << (nextSig.h2 - firstLoopSig_.h2) << ","
+                          << (nextSig.h3 - firstLoopSig_.h3) << ")\n";
+            }
+        }
     }
 };
 
