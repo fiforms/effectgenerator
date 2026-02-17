@@ -442,7 +442,7 @@ public:
         opts.push_back({"--decay", "float", 0.0, 1000.0, true, "Wave decay with distance", "0.001"});
         opts.push_back({"--direction", "string", 0, 0, false, "Wave direction: up/down/left/right/upleft/upright/downleft/downright", "", false,
                         {"up", "down", "left", "right", "upleft", "upright", "downleft", "downright"}});
-        opts.push_back({"--warmup", "float", 0.0, 100000.0, true, "Warmup time in seconds to stabilize waves", "0.0"});
+        opts.push_back({"--warmup", "float", 0.0, 100000.0, true, "Warmup time in seconds to stabilize waves (for seamless loops use > --max-lifetime)", "0.0"});
         opts.push_back({"--light-angle", "float", -360.0, 360.0, true, "Light direction in degrees", "-45"});
         opts.push_back({"--light-intensity", "float", 0.0, 10.0, true, "Lighting effect strength", "0.3"});
         opts.push_back({"--interference", "float", 0.0, 1.0, true, "Wave interference amount 0.0-1.0", "1.0"});
