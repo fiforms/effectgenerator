@@ -130,8 +130,7 @@ void printUsage(const char* prog) {
     std::cout << "  --background-video -      stdin must be rawvideo rgb24 at --width x --height and --fps\n";
     std::cout << "  --output -                stdout is rawvideo rgb24 at --width x --height and --fps\n\n";
     std::cout << "Environment Variables:\n";
-    std::cout << "  FFMPEG_PATH               Path to ffmpeg executable\n";
-    std::cout << "  FFPROBE_PATH              Path to ffprobe executable\n\n";
+    std::cout << "  FFMPEG_PATH               Path to ffmpeg executable\n\n";
     std::cout << "Examples:\n";
     std::cout << "  " << prog << " --list-effects\n";
     std::cout << "  " << prog << " --help-snowflake\n";

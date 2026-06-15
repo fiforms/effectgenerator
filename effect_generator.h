@@ -20,7 +20,7 @@
 
 // Program version. Can be overridden at compile time with -DEFFECTGENERATOR_VERSION="\"x.y.z\""
 #ifndef EFFECTGENERATOR_VERSION
-#define EFFECTGENERATOR_VERSION "0.1.7"
+#define EFFECTGENERATOR_VERSION "0.1.8"
 #endif
 
 inline const char* getEffectGeneratorVersion() {
@@ -196,7 +196,7 @@ private:
     ProcessPipe videoInput_;
     ProcessPipe ffmpegOutput_;
 
-    static ProcessPipe spawnProcessPipe(const std::vector<std::string>& args, const char* mode, bool quiet);
+    static ProcessPipe spawnProcessPipe(const std::vector<std::string>& args, const char* mode, bool quiet, bool captureStderr = false);
     static void closeProcessPipe(ProcessPipe& proc);
     
     std::string findFFmpeg(std::string binaryName);
@@ -204,7 +204,7 @@ private:
     bool startBackgroundVideo(const char* filename);
     bool readVideoFrame();
     bool startFFmpegOutput(const char* filename);
-    // Probe the duration (in seconds) of a video file using ffprobe if available.
+    // Probe the duration (in seconds) of a video file using ffmpeg
     double probeVideoDuration(const char* filename);
     float getFadeMultiplier(int frameNumber, int totalFrames, float maxFadeRatio);
     

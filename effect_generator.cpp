@@ -135,7 +135,7 @@ std::string buildCommandLine(const std::vector<std::string>& args) {
 }
 #endif
 
-VideoGenerator::ProcessPipe VideoGenerator::spawnProcessPipe(const std::vector<std::string>& args, const char* mode, bool quiet) {
+VideoGenerator::ProcessPipe VideoGenerator::spawnProcessPipe(const std::vector<std::string>& args, const char* mode, bool quiet, bool captureStderr) {
     VideoGenerator::ProcessPipe result;
     if (args.empty() || !mode) return result;
     bool readMode = mode[0] == 'r';
@@ -167,8 +167,8 @@ VideoGenerator::ProcessPipe VideoGenerator::spawnProcessPipe(const std::vector<s
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdInput = readMode ? hNullRead : childStdinRead;
-    si.hStdOutput = readMode ? childStdoutWrite : hNullWrite;
-    si.hStdError = quiet ? hNullWrite : si.hStdOutput;
+    si.hStdOutput = (readMode && !captureStderr) ? childStdoutWrite : hNullWrite;
+    si.hStdError = (readMode && captureStderr) ? childStdoutWrite : (quiet ? hNullWrite : si.hStdOutput);
 
     PROCESS_INFORMATION pi{};
     std::string cmdLine = buildCommandLine(args);
@@ -238,8 +238,13 @@ VideoGenerator::ProcessPipe VideoGenerator::spawnProcessPipe(const std::vector<s
         int devNullIn = open("/dev/null", O_RDONLY);
         int devNullOut = open("/dev/null", O_WRONLY);
         if (readMode) {
-            dup2(pipefd[1], STDOUT_FILENO);
-            if (quiet && devNullOut != -1) dup2(devNullOut, STDERR_FILENO);
+            if (captureStderr) {
+                dup2(pipefd[1], STDERR_FILENO);
+                if (devNullOut != -1) dup2(devNullOut, STDOUT_FILENO);
+            } else {
+                dup2(pipefd[1], STDOUT_FILENO);
+                if (quiet && devNullOut != -1) dup2(devNullOut, STDERR_FILENO);
+            }
             if (devNullIn != -1) dup2(devNullIn, STDIN_FILENO);
         } else {
             dup2(pipefd[0], STDIN_FILENO);
@@ -300,7 +305,7 @@ void VideoGenerator::closeProcessPipe(VideoGenerator::ProcessPipe& proc) {
 
 std::string VideoGenerator::findFFmpeg(std::string binaryName) {
     // 1. Check environment variable first
-    const char* envPtr = binaryName == "ffmpeg" ? std::getenv("FFMPEG_PATH") : std::getenv("FFPROBE_PATH");
+    const char* envPtr = std::getenv("FFMPEG_PATH");
     if (envPtr && envPtr[0] != '\0') {
         return trimQuotes(std::string(envPtr));
     }
@@ -421,35 +426,34 @@ bool VideoGenerator::startBackgroundVideo(const char* filename) {
 }
 
 double VideoGenerator::probeVideoDuration(const char* filename) {
-    if (!filename) return -1.0;
+    if (!filename || ffmpegPath_.empty()) return -1.0;
 
-    std::string ffprobe = findFFmpeg("ffprobe");
-    if (ffprobe.empty()) {
-        std::cerr << "ffprobe not found; cannot probe video duration\n";
-        return -1.0;
-    }
-
+    // Run "ffmpeg -i <file>" with no output — ffmpeg prints media info to stderr and exits.
     std::vector<std::string> args = {
-        ffprobe,
-        "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        filename
+        ffmpegPath_,
+        "-i", filename
     };
-    VideoGenerator::ProcessPipe pipe = spawnProcessPipe(args, "r", true);
+    VideoGenerator::ProcessPipe pipe = spawnProcessPipe(args, "r", false, true);
     if (!pipe.stream) return -1.0;
 
-    char buf[128];
+    char buf[256];
     std::string out;
     while (fgets(buf, sizeof(buf), pipe.stream)) {
         out += buf;
     }
     closeProcessPipe(pipe);
 
-    if (out.empty()) return -1.0;
+    // Parse "Duration: HH:MM:SS.ss" from ffmpeg stderr
+    const std::string tag = "Duration: ";
+    size_t pos = out.find(tag);
+    if (pos == std::string::npos) return -1.0;
+    pos += tag.size();
 
-    // Parse as double
-    double secs = atof(out.c_str());
+    int h = 0, m = 0;
+    double s = 0.0;
+    if (sscanf(out.c_str() + pos, "%d:%d:%lf", &h, &m, &s) != 3) return -1.0;
+
+    double secs = h * 3600.0 + m * 60.0 + s;
     if (secs <= 0.0) return -1.0;
     return secs;
 }

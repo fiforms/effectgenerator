@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.8] - 2026-06-15
+
+### Improvements
+
+- Removed dependency on `ffprobe` for video duration probing. `ffmpeg -i` is now used instead, with the `Duration:` field parsed from stderr. The `FFPROBE_PATH` environment variable is no longer needed or recognized.
+
 ## [0.1.6] - 2026-02-17
 
 Changes since `0.1.5` (`980e2ea..HEAD`).

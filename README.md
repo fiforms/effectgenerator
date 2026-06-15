@@ -41,14 +41,14 @@ This installs to `/usr/local/bin/effectgenerator`
 ## Dependencies
 
 - A recent C++17 compatible compiler (like GCC)
-- FFmpeg and Ffprobe (runtime dependencies)
+- FFmpeg (runtime dependency)
 
 ## FFmpeg Setup
 
-The application will automatically search for FFmpeg and Ffprobe in common locations. You can also:
+The application will automatically search for FFmpeg in common locations. You can also:
 
 1. Add FFmpeg to your system PATH
-2. Set the `FFMPEG_PATH` and `FFPROBE_PATH` environment variables:
+2. Set the `FFMPEG_PATH` environment variable:
 
 ## Usage
 
